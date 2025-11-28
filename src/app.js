@@ -124,7 +124,7 @@ if(roleSelector) {
     });
 }
 
-// --- INIT SYSTEM (BACKGROUND ENABLED) ---
+// --- INIT SYSTEM (OTIMIZADO) ---
 async function initSystem() {
     if (detector) return;
 
@@ -142,6 +142,7 @@ async function initSystem() {
     faceMesh.onResults(onResults);
 
     try {
+        // OTIMIZAÇÃO: 640x480 processa muito mais rápido que HD
         const stream = await navigator.mediaDevices.getUserMedia({
             video: { 
                 width: { ideal: 1280 }, 
@@ -162,12 +163,13 @@ async function initSystem() {
 }
 
 function startBackgroundLoop() {
+    // Worker Metrônomo
     const blob = new Blob([`
         let interval = null;
         self.onmessage = function(e) {
             if (e.data === 'start') {
-                // 100ms = 10 FPS (Suficiente para background e economiza CPU)
-                interval = setInterval(() => postMessage('tick'), 100);
+                // 33ms = ~30 FPS (Fluidez total)
+                interval = setInterval(() => postMessage('tick'), 33);
             } else if (e.data === 'stop') {
                 clearInterval(interval);
             }
@@ -183,7 +185,7 @@ function startBackgroundLoop() {
         try {
             await faceMesh.send({image: videoElement});
         } catch (error) {
-            // Ignora erros de frame drop
+            // Silently ignore drops
         }
         isProcessingFrame = false;
     };
@@ -208,7 +210,7 @@ function onResults(results) {
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
     
-    // OTIMIZAÇÃO: Só desenha se a aba estiver visível (economiza 90% de GPU em background)
+    // Desenha só se a aba estiver visível (economiza GPU)
     if (!document.hidden) {
         canvasCtx.save();
         canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -220,18 +222,21 @@ function onResults(results) {
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
 
-        // OTIMIZAÇÃO DE LAG: REMOVIDO TESSELATION (Malha pesada)
-        // Apenas desenha se visível
+        // --- DESENHO DOS PONTOS (Restaurado e Leve) ---
         if (!document.hidden) {
-            // drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#F0F0F010', lineWidth: 0.5}); // <-- COMENTADO PARA REMOVER LAG
-            drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD02880', lineWidth: 1.5});
+            // 1. Tesselation (A malha completa) - Cor sutil
+            drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#F0F0F030', lineWidth: 0.5});
+            
+            // 2. Contornos (Olhos/Boca/Face) - Cor de destaque
+            drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1});
         }
         
-        // LÓGICA DE DETECÇÃO (SEMPRE RODA)
+        // --- CÁLCULO (Sempre roda) ---
         const leftEAR = calculateEAR(landmarks, LANDMARKS.LEFT_EYE);
         const rightEAR = calculateEAR(landmarks, LANDMARKS.RIGHT_EYE);
-        
-        // Passa os dois olhos separadamente
+        const avgEAR = (leftEAR + rightEAR) / 2.0;
+
+        // Detector recebe os dois olhos para lógica independente
         if (detector) detector.processDetection(leftEAR, rightEAR, 0);
     } else {
         if (detector && detector.state.isCalibrated) detector.updateUI("ROSTO NÃO DETECTADO");

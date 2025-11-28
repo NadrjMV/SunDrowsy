@@ -1,9 +1,10 @@
+import { calculateEAR, calculateMAR, LANDMARKS } from './vision-logic.js';
 import { db, auth } from './firebase-config.js';
 
 // --- CONFIGURAÇÕES DE FÁBRICA ---
 const FACTORY_CONFIG = {
-    CRITICAL_TIME_MS: 20000,   // 20s = Dormiu (Alarme Máximo)
-    MICROSLEEP_TIME_MS: 3000,  // 3s = Microssono (Alarme se já tiver sinais)
+    CRITICAL_TIME_MS: 20000,   // 20s = Alarme Máximo (Sono Profundo)
+    MICROSLEEP_TIME_MS: 3000,  // 3s = Alarme Intermediário (Só se já tiver piscadas)
     LONG_BLINK_TIME_MS: 400,   // 400ms = Piscada longa
     REQUIRED_LONG_BLINKS: 3,   // Contagem para armar o sistema
     BLINK_WINDOW_MS: 15000,    // 15s para resetar contagem
@@ -36,7 +37,7 @@ export class DrowsinessDetector {
     }
 
     setCalibration(earClosed, earOpen, marOpen) {
-        // Define o limite como 25% acima do olho fechado (mais preciso que média)
+        // Define o limite como 25% acima do olho fechado
         const calibratedEAR = earClosed + (earOpen - earClosed) * 0.25;
         const calibratedMAR = marOpen * 0.5;
 
@@ -53,7 +54,7 @@ export class DrowsinessDetector {
         this.updateUI("Calibração concluída. Monitorando...");
     }
 
-    // --- NOVA LÓGICA: RECEBE OS DOIS OLHOS ---
+    // --- DETECÇÃO ---
     processDetection(leftEAR, rightEAR, mar) {
         if (!this.state.monitoring || !this.state.isCalibrated) return;
 
@@ -66,13 +67,12 @@ export class DrowsinessDetector {
             this.state.longBlinksWindowStart = now;
         }
 
-        // --- VALIDAÇÃO DUPLA (OS DOIS OLHOS PRECISAM ESTAR FECHADOS) ---
+        // --- VALIDAÇÃO DUPLA (OS DOIS OLHOS FECHADOS) ---
         const isLeftClosed = leftEAR < EAR_THRESHOLD;
         const isRightClosed = rightEAR < EAR_THRESHOLD;
         const bothEyesClosed = isLeftClosed && isRightClosed;
 
         if (bothEyesClosed) {
-            // --- INICIO DO FECHAMENTO ---
             if (this.state.eyesClosedSince === null) {
                 this.state.eyesClosedSince = now;
             }
@@ -93,8 +93,7 @@ export class DrowsinessDetector {
             }
 
         } else {
-            // --- OLHOS ABERTOS (OU APENAS 1 FECHADO) ---
-            // Se um olho abrir, considera "acordado" para resetar o timer de fechamento
+            // Se abrir os olhos
             if (this.state.eyesClosedSince !== null) {
                 this.state.eyesClosedSince = null;
                 this.state.justTriggeredLongBlink = false;
@@ -111,7 +110,6 @@ export class DrowsinessDetector {
             }
         }
         
-        // Atualiza UI
         if (!this.state.isAlarmActive) this.updateUICounters();
     }
 
@@ -128,23 +126,29 @@ export class DrowsinessDetector {
             this.audioManager.playAlert();
             this.onStatusChange({ alarm: true, text: reason });
             
-            // LOG ESTRUTURADO: user > data > alerts
+            // --- NOVA ESTRUTURA DE LOG: logs / {uid} / {data} / {alerta} ---
             if(auth.currentUser) {
                 const now = new Date();
-                const dateString = now.toISOString().split('T')[0]; // YYYY-MM-DD
+                
+                // Formata data YYYY-MM-DD
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                const dateFolder = `${year}-${month}-${day}`;
 
-                db.collection('users')
-                  .doc(auth.currentUser.uid)
-                  .collection('daily_logs')
-                  .doc(dateString)
-                  .collection('alerts')
-                  .add({
+                db.collection('logs')                 // Pasta Raiz: logs
+                  .doc(auth.currentUser.uid)          // Pasta do Usuário: UID
+                  .collection(dateFolder)             // Pasta do Dia: 2025-11-28
+                  .add({                              // Documento do Alerta
                         timestamp: now,
                         type: "ALARM",
                         reason: reason,
                         role: this.config.role,
-                        fatigue_level: `${this.state.longBlinksCount}/${this.config.REQUIRED_LONG_BLINKS}`
-                  });
+                        fatigue_level: `${this.state.longBlinksCount}/${this.config.REQUIRED_LONG_BLINKS}`,
+                        duration_ms: this.state.eyesClosedSince ? (now - this.state.eyesClosedSince) : 0
+                  })
+                  .then(() => console.log(`Log salvo em logs/${auth.currentUser.uid}/${dateFolder}`))
+                  .catch(e => console.error("Erro ao salvar log:", e));
             }
         }
     }
