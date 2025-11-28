@@ -5,29 +5,41 @@ export class AudioManager {
         this.buffer = null;
         this.isPlaying = false;
         
-        // Carrega o arquivo de áudio
         this.loadSound(audioFile);
     }
 
     async loadSound(url) {
-        const response = await fetch(url);
-        const arrayBuffer = await response.arrayBuffer();
-        this.buffer = await this.audioContext.decodeAudioData(arrayBuffer);
+        try {
+            const response = await fetch(url);
+            const arrayBuffer = await response.arrayBuffer();
+            this.buffer = await this.audioContext.decodeAudioData(arrayBuffer);
+            console.log("🔊 Áudio carregado com sucesso!");
+        } catch (e) {
+            console.error("❌ Erro ao carregar áudio:", e);
+        }
     }
 
     playAlert() {
-        if (this.isPlaying || !this.buffer) return;
+        if (!this.buffer) {
+            console.warn("⚠️ Buffer de áudio vazio!");
+            return;
+        }
+        
+        // Se já estiver tocando, não sobrepõe
+        if (this.isPlaying) return;
 
-        // Resume context se estiver suspenso (política de browsers)
+        // Tenta acordar o contexto de áudio (Navegadores bloqueiam autoplay)
         if (this.audioContext.state === 'suspended') {
-            this.audioContext.resume();
+            this.audioContext.resume().then(() => {
+                console.log("🔊 AudioContext retomado!");
+            });
         }
 
         const source = this.audioContext.createBufferSource();
         source.buffer = this.buffer;
-        source.loop = true; // Loop infinito até parar
+        source.loop = true; 
 
-        // SETUP DO BOOST: Volume 3.0 = 300%
+        // Volume Boost (300%)
         this.gainNode.gain.value = 3.0; 
         
         source.connect(this.gainNode);
@@ -36,13 +48,17 @@ export class AudioManager {
         source.start(0);
         this.currentSource = source;
         this.isPlaying = true;
+        console.log("🔊 TOANDO ALARME!");
     }
 
     stopAlert() {
         if (this.currentSource) {
-            this.currentSource.stop();
+            try {
+                this.currentSource.stop();
+            } catch(e) { /* Ignora erro se já parou */ }
             this.currentSource = null;
-            this.isPlaying = false;
         }
+        this.isPlaying = false;
+        console.log("🔇 Alarme parado.");
     }
 }

@@ -11,7 +11,7 @@ const canvasElement = document.getElementById('output_canvas');
 const canvasCtx = canvasElement.getContext('2d');
 const alertOverlay = document.getElementById('danger-alert');
 
-// Modais e Botões
+// Modais
 const calibModal = document.getElementById('calibration-modal');
 const tutorialModal = document.getElementById('tutorial-modal');
 const btnFabCalibrate = document.getElementById('btn-fab-calibrate');
@@ -53,23 +53,38 @@ auth.onAuthStateChanged(async (user) => {
         initSystem();
         
         try {
+            console.log("☁️ [FIREBASE] Buscando perfil do usuário...");
             const doc = await db.collection('users').doc(user.uid).get();
             let userRole = 'MOTORISTA'; 
 
             if(doc.exists) {
-                if(doc.data().role) userRole = doc.data().role;
+                // Role
+                if(doc.data().role) {
+                    userRole = doc.data().role;
+                    console.log(`   └─ Perfil encontrado: ${userRole}`);
+                }
                 
-                if(doc.data().calibration && detector) {
-                    detector.config = { ...detector.config, ...doc.data().calibration };
+                // Calibração
+                const savedData = doc.data().calibration;
+                if(savedData && detector) {
+                    // Carrega APENAS EAR/MAR para não sobrescrever o tempo crítico
+                    if (savedData.EAR_THRESHOLD) detector.config.EAR_THRESHOLD = savedData.EAR_THRESHOLD;
+                    if (savedData.MAR_THRESHOLD) detector.config.MAR_THRESHOLD = savedData.MAR_THRESHOLD;
                     detector.state.isCalibrated = true;
-                    console.log("Calibração carregada.");
+                    
+                    // --- LOG DE SUCESSO DE CARREGAMENTO ---
+                    console.log("☁️ [FIREBASE] Calibração carregada com SUCESSO!");
+                    console.log(`   └─ EAR da Nuvem: ${savedData.EAR_THRESHOLD.toFixed(4)}`);
                 } else {
+                    console.log("⚠️ [FIREBASE] Nenhuma calibração salva encontrada.");
                     toggleModal(calibModal, true);
                 }
             } else {
+                console.log("⚠️ [FIREBASE] Usuário novo (sem documento).");
                 toggleModal(calibModal, true);
             }
             
+            // Sincroniza Role
             if(detector) detector.setRole(userRole);
             const roleSel = document.getElementById('role-selector');
             const roleDisp = document.getElementById('user-role-display');
@@ -77,7 +92,7 @@ auth.onAuthStateChanged(async (user) => {
             if(roleDisp) roleDisp.innerText = userRole;
 
         } catch (e) {
-            console.log("Erro dados:", e);
+            console.error("❌ [FIREBASE] Erro ao carregar dados:", e);
             toggleModal(calibModal, true);
         }
         
@@ -124,7 +139,7 @@ if(roleSelector) {
     });
 }
 
-// --- INIT SYSTEM (OTIMIZADO) ---
+// --- INIT SYSTEM ---
 async function initSystem() {
     if (detector) return;
 
@@ -142,20 +157,14 @@ async function initSystem() {
     faceMesh.onResults(onResults);
 
     try {
-        // OTIMIZAÇÃO: 640x480 processa muito mais rápido que HD
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { 
-                width: { ideal: 1280 }, 
-                height: { ideal: 720 }, 
-                facingMode: "user" 
-            }
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
         });
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
             videoElement.play();
             startBackgroundLoop();
         };
-
     } catch (err) {
         console.error("Erro Câmera:", err);
         alert("Erro ao abrir câmera: " + err.message);
@@ -163,12 +172,10 @@ async function initSystem() {
 }
 
 function startBackgroundLoop() {
-    // Worker Metrônomo
     const blob = new Blob([`
         let interval = null;
         self.onmessage = function(e) {
             if (e.data === 'start') {
-                // 33ms = ~30 FPS (Fluidez total)
                 interval = setInterval(() => postMessage('tick'), 33);
             } else if (e.data === 'stop') {
                 clearInterval(interval);
@@ -177,40 +184,26 @@ function startBackgroundLoop() {
     `], { type: 'application/javascript' });
 
     tickerWorker = new Worker(URL.createObjectURL(blob));
-
     tickerWorker.onmessage = async () => {
         if (isProcessingFrame || !videoElement.videoWidth) return;
-
         isProcessingFrame = true;
-        try {
-            await faceMesh.send({image: videoElement});
-        } catch (error) {
-            // Silently ignore drops
-        }
+        try { await faceMesh.send({image: videoElement}); } catch (error) { }
         isProcessingFrame = false;
     };
-
     tickerWorker.postMessage('start');
     detector.updateUI("ATIVO");
 }
 
 function stopSystem() {
-    if (tickerWorker) {
-        tickerWorker.postMessage('stop');
-        tickerWorker.terminate();
-        tickerWorker = null;
-    }
-    if (videoElement.srcObject) {
-        videoElement.srcObject.getTracks().forEach(track => track.stop());
-    }
+    if (tickerWorker) { tickerWorker.postMessage('stop'); tickerWorker.terminate(); tickerWorker = null; }
+    if (videoElement.srcObject) { videoElement.srcObject.getTracks().forEach(track => track.stop()); }
 }
 
-// --- LOOP DE PROCESSAMENTO ---
+// --- LOOP PROCESSAMENTO ---
 function onResults(results) {
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
     
-    // Desenha só se a aba estiver visível (economiza GPU)
     if (!document.hidden) {
         canvasCtx.save();
         canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -222,21 +215,14 @@ function onResults(results) {
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
 
-        // --- DESENHO DOS PONTOS (Restaurado e Leve) ---
         if (!document.hidden) {
-            // 1. Tesselation (A malha completa) - Cor sutil
-            drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#F0F0F030', lineWidth: 0.5});
-            
-            // 2. Contornos (Olhos/Boca/Face) - Cor de destaque
-            drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1});
+            // Visual leve
+            drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1.5});
         }
         
-        // --- CÁLCULO (Sempre roda) ---
         const leftEAR = calculateEAR(landmarks, LANDMARKS.LEFT_EYE);
         const rightEAR = calculateEAR(landmarks, LANDMARKS.RIGHT_EYE);
-        const avgEAR = (leftEAR + rightEAR) / 2.0;
 
-        // Detector recebe os dois olhos para lógica independente
         if (detector) detector.processDetection(leftEAR, rightEAR, 0);
     } else {
         if (detector && detector.state.isCalibrated) detector.updateUI("ROSTO NÃO DETECTADO");
@@ -279,6 +265,7 @@ if(btnPrev) btnPrev.addEventListener('click', () => {
 btnStartCalib.addEventListener('click', async () => {
     audioMgr.audioContext.resume();
     btnStartCalib.disabled = true;
+    
     calibText.innerText = "Mantenha os olhos ABERTOS...";
     calibProgress.style.width = "30%";
     await new Promise(r => setTimeout(r, 3000));
@@ -287,7 +274,9 @@ btnStartCalib.addEventListener('click', async () => {
     await new Promise(r => setTimeout(r, 3000));
     calibText.innerText = "Calibração Concluída!";
     calibProgress.style.width = "100%";
-    if(detector) detector.setCalibration(0.15, 0.30, 0.50); 
+    
+    if(detector) detector.setCalibration(0.15, 0.35, 0.50); 
+
     setTimeout(() => {
         toggleModal(calibModal, false);
         btnStartCalib.disabled = false;

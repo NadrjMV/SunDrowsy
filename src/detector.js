@@ -3,21 +3,20 @@ import { db, auth } from './firebase-config.js';
 
 // --- CONFIGURAÇÕES DE FÁBRICA ---
 const FACTORY_CONFIG = {
-    CRITICAL_TIME_MS: 20000,   // 20s = Alarme Máximo (Sono Profundo)
-    MICROSLEEP_TIME_MS: 3000,  // 3s = Alarme Intermediário (Só se já tiver piscadas)
-    LONG_BLINK_TIME_MS: 400,   // 400ms = Piscada longa
-    REQUIRED_LONG_BLINKS: 3,   // Contagem para armar o sistema
-    BLINK_WINDOW_MS: 15000,    // 15s para resetar contagem
-    EAR_THRESHOLD: 0.25,       // Calibração
-    MAR_THRESHOLD: 0.50,       // Calibração
-    role: 'MOTORISTA'
+    CRITICAL_TIME_MS: 5000,    // 5s pra teste
+    MICROSLEEP_TIME_MS: 3000,
+    LONG_BLINK_TIME_MS: 1100,
+    REQUIRED_LONG_BLINKS: 3,
+    BLINK_WINDOW_MS: 15000,
+    EAR_THRESHOLD: 0.25,
+    MAR_THRESHOLD: 0.50,
+    role: 'VIGIA'
 };
 
 export class DrowsinessDetector {
     constructor(audioManager, onStatusChange) {
         this.audioManager = audioManager;
         this.onStatusChange = onStatusChange;
-        
         this.config = { ...FACTORY_CONFIG };
 
         this.state = {
@@ -27,85 +26,125 @@ export class DrowsinessDetector {
             longBlinksWindowStart: Date.now(),
             isAlarmActive: false,
             monitoring: false,
-            justTriggeredLongBlink: false
+            justTriggeredLongBlink: false,
+            recoveryFrames: 0 
         };
     }
 
     setRole(newRole) {
         this.config.role = newRole;
-        console.log(`Perfil atualizado: ${newRole}`);
+        console.log(`[SISTEMA] Perfil definido: ${newRole}`);
     }
 
     setCalibration(earClosed, earOpen, marOpen) {
-        // Define o limite como 25% acima do olho fechado
-        const calibratedEAR = earClosed + (earOpen - earClosed) * 0.25;
+        const calibratedEAR = earClosed + (earOpen - earClosed) * 0.35;
         const calibratedMAR = marOpen * 0.5;
 
         this.config.EAR_THRESHOLD = calibratedEAR;
         this.config.MAR_THRESHOLD = calibratedMAR;
         this.state.isCalibrated = true;
         
+        console.log(`✅ Calibrado Localmente! Limite EAR: ${calibratedEAR.toFixed(4)}`);
+
         if(auth.currentUser) {
+            // Salva APENAS a calibração visual
             db.collection('users').doc(auth.currentUser.uid).set({
-                calibration: this.config
-            }, { merge: true });
+                calibration: {
+                    EAR_THRESHOLD: calibratedEAR,
+                    MAR_THRESHOLD: calibratedMAR
+                }
+            }, { merge: true })
+            .then(() => {
+                // --- LOG DE SUCESSO DE SALVAMENTO ---
+                console.log("☁️ [FIREBASE] Calibração SALVA na nuvem com sucesso!");
+                console.log(`   └─ EAR salvo: ${calibratedEAR.toFixed(4)}`);
+            })
+            .catch((error) => {
+                console.error("❌ [FIREBASE] Erro ao salvar calibração:", error);
+            });
         }
         
         this.updateUI("Calibração concluída. Monitorando...");
     }
 
-    // --- DETECÇÃO ---
     processDetection(leftEAR, rightEAR, mar) {
         if (!this.state.monitoring || !this.state.isCalibrated) return;
 
         const now = Date.now();
         const { EAR_THRESHOLD, CRITICAL_TIME_MS, MICROSLEEP_TIME_MS, LONG_BLINK_TIME_MS, REQUIRED_LONG_BLINKS, BLINK_WINDOW_MS } = this.config;
 
-        // Reset da contagem (15s)
+        // Reset da Janela
         if (now - this.state.longBlinksWindowStart > BLINK_WINDOW_MS) {
             if (this.state.longBlinksCount > 0) this.state.longBlinksCount = 0;
             this.state.longBlinksWindowStart = now;
         }
 
-        // --- VALIDAÇÃO DUPLA (OS DOIS OLHOS FECHADOS) ---
+        // Validação Dupla
         const isLeftClosed = leftEAR < EAR_THRESHOLD;
         const isRightClosed = rightEAR < EAR_THRESHOLD;
-        const bothEyesClosed = isLeftClosed && isRightClosed;
+        const physicallyClosed = isLeftClosed && isRightClosed; 
 
-        if (bothEyesClosed) {
+        // Buffer Anti-Ruído
+        let isEffectivelyClosed = false;
+
+        if (physicallyClosed) {
+            isEffectivelyClosed = true;
+            this.state.recoveryFrames = 0; 
+        } else {
+            if (this.state.eyesClosedSince !== null && this.state.recoveryFrames < 6) {
+                isEffectivelyClosed = true;
+                this.state.recoveryFrames++;
+            } else {
+                isEffectivelyClosed = false;
+            }
+        }
+
+        // --- LÓGICA ---
+        if (isEffectivelyClosed) {
             if (this.state.eyesClosedSince === null) {
                 this.state.eyesClosedSince = now;
+        //        console.log(`🔻 Início do fechamento. Limite: ${CRITICAL_TIME_MS}ms`);
             }
 
             const timeClosed = now - this.state.eyesClosedSince;
             const isSystemArmed = this.state.longBlinksCount >= REQUIRED_LONG_BLINKS;
+
+            if (timeClosed > 1000 && timeClosed % 1000 < 50) {
+                console.log(`⏱️ Tempo: ${timeClosed}ms`);
+            }
+
+            // 1. REGRA DE OURO: TEMPO CRÍTICO (Prioridade)
+            if (timeClosed >= CRITICAL_TIME_MS) {
+                this.triggerAlarm(`PERIGO: SONO PROFUNDO (${(timeClosed/1000).toFixed(1)}s)`);
+                return;
+            } 
             
-            // 1. Contagem de Piscada Longa
+            // 2. REGRA DE MICROSSONO
+            if (isSystemArmed && timeClosed >= MICROSLEEP_TIME_MS) {
+                this.triggerAlarm(`MICROSSONO DETECTADO (${(timeClosed/1000).toFixed(1)}s)`);
+                return;
+            }
+
+            // 3. CONTAGEM
             if (timeClosed >= LONG_BLINK_TIME_MS && !this.state.justTriggeredLongBlink) {
                 this.triggerLongBlink();
             }
 
-            // 2. Alarmes de Tempo
-            if (timeClosed >= CRITICAL_TIME_MS) {
-                this.triggerAlarm("PERIGO: SONO PROFUNDO (20s)");
-            } else if (isSystemArmed && timeClosed >= MICROSLEEP_TIME_MS) {
-                this.triggerAlarm("MICROSSONO DETECTADO (FADIGA ALTA)");
-            }
-
         } else {
-            // Se abrir os olhos
             if (this.state.eyesClosedSince !== null) {
+            //    console.log(`🔺 Olhos abertos. Reset.`);
                 this.state.eyesClosedSince = null;
                 this.state.justTriggeredLongBlink = false;
+                this.state.recoveryFrames = 0;
 
-                if (!this.state.isAlarmActive) {
+                if (this.state.isAlarmActive) {
+                    this.stopAlarm();
+                } else {
                     if (this.state.longBlinksCount >= REQUIRED_LONG_BLINKS) {
                         this.updateUI("ALERTA: FADIGA ALTA.");
                     } else {
                         this.updateUI("Monitorando...");
                     }
-                } else {
-                    this.stopAlarm();
                 }
             }
         }
@@ -116,40 +155,41 @@ export class DrowsinessDetector {
     triggerLongBlink() {
         this.state.longBlinksCount++;
         this.state.justTriggeredLongBlink = true;
+        console.log(`⚠️ Piscada Contada: ${this.state.longBlinksCount}`);
         this.updateUICounters();
     }
 
     triggerAlarm(reason) {
-        if (!this.state.isAlarmActive) {
-            console.log(reason);
-            this.state.isAlarmActive = true;
-            this.audioManager.playAlert();
-            this.onStatusChange({ alarm: true, text: reason });
-            
-            // --- NOVA ESTRUTURA DE LOG: logs / {uid} / {data} / {alerta} ---
-            if(auth.currentUser) {
-                const now = new Date();
-                
-                // Formata data YYYY-MM-DD
-                const year = now.getFullYear();
-                const month = String(now.getMonth() + 1).padStart(2, '0');
-                const day = String(now.getDate()).padStart(2, '0');
-                const dateFolder = `${year}-${month}-${day}`;
+        if (this.state.isAlarmActive) {
+            if (!this.audioManager.isPlaying) this.audioManager.playAlert();
+            return;
+        }
 
-                db.collection('logs')                 // Pasta Raiz: logs
-                  .doc(auth.currentUser.uid)          // Pasta do Usuário: UID
-                  .collection(dateFolder)             // Pasta do Dia: 2025-11-28
-                  .add({                              // Documento do Alerta
-                        timestamp: now,
-                        type: "ALARM",
-                        reason: reason,
-                        role: this.config.role,
-                        fatigue_level: `${this.state.longBlinksCount}/${this.config.REQUIRED_LONG_BLINKS}`,
-                        duration_ms: this.state.eyesClosedSince ? (now - this.state.eyesClosedSince) : 0
-                  })
-                  .then(() => console.log(`Log salvo em logs/${auth.currentUser.uid}/${dateFolder}`))
-                  .catch(e => console.error("Erro ao salvar log:", e));
-            }
+        console.error("🚨 ALARME ACIONADO:", reason);
+        this.state.isAlarmActive = true;
+        this.audioManager.playAlert();
+        this.onStatusChange({ alarm: true, text: reason });
+        
+        if(auth.currentUser) {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const dateFolder = `${year}-${month}-${day}`;
+
+            db.collection('logs')
+                .doc(auth.currentUser.uid)
+                .collection(dateFolder)
+                .add({
+                    timestamp: now,
+                    type: "ALARM",
+                    reason: reason,
+                    role: this.config.role,
+                    fatigue_level: `${this.state.longBlinksCount}/${this.config.REQUIRED_LONG_BLINKS}`,
+                    duration_ms: (Date.now() - this.state.eyesClosedSince)
+                })
+                .then(() => console.log("📝 Log de incidente salvo no Firebase."))
+                .catch(e => console.error("❌ Erro log:", e));
         }
     }
 
@@ -164,7 +204,6 @@ export class DrowsinessDetector {
     updateUI(text) {
         const el = document.getElementById('system-status');
         if(el) el.innerText = text;
-        
         const overlay = document.getElementById('danger-alert');
         if(overlay) {
             if (this.state.isAlarmActive) overlay.classList.remove('hidden');
@@ -175,11 +214,11 @@ export class DrowsinessDetector {
     updateUICounters() {
         const count = this.state.longBlinksCount;
         const max = this.config.REQUIRED_LONG_BLINKS;
-        
         const counterEl = document.getElementById('blink-counter');
+        const levelEl = document.getElementById('fatigue-level');
+        
         if(counterEl) counterEl.innerText = `${count}/${max}`;
         
-        const levelEl = document.getElementById('fatigue-level');
         if(levelEl) {
             if (count >= max) {
                 levelEl.innerText = "FADIGA";
