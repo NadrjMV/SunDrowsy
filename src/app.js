@@ -284,3 +284,152 @@ btnStartCalib.addEventListener('click', async () => {
         calibProgress.style.width = "0%";
     }, 1000);
 });
+
+// --- LÓGICA DO ALMOÇO (1x POR DIA + LOGS + LOCK SCREEN) ---
+const btnLunch = document.getElementById('btn-fab-lunch');
+const lunchModal = document.getElementById('lunch-modal');
+const btnLunchConfirm = document.getElementById('btn-confirm-lunch');
+const btnLunchCancel = document.getElementById('btn-cancel-lunch');
+const appContainer = document.getElementById('app-view'); // Para aplicar o blur
+
+let isLunching = false;
+const LUNCH_KEY = 'sundrowsy_last_lunch';
+
+// Helper: Log no Firebase
+function logLunchAction(actionType) {
+    if (!auth.currentUser) return;
+    
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const dateFolder = `${year}-${month}-${day}`;
+    
+    // Salva na mesma estrutura dos alarmes: logs/UID/DATA/evento
+    db.collection('logs')
+        .doc(auth.currentUser.uid)
+        .collection(dateFolder)
+        .add({
+            timestamp: now,
+            type: actionType, // "LUNCH_START" ou "LUNCH_END"
+            description: actionType === "LUNCH_START" ? "Início de Pausa Alimentar" : "Retorno de Pausa Alimentar",
+            role: detector ? detector.config.role : 'DESCONHECIDO'
+        })
+        .then(() => console.log(`📝 Log de Almoço (${actionType}) salvo.`))
+        .catch(e => console.error("❌ Erro ao salvar log:", e));
+}
+
+// Verifica data
+function hasLunchToday() {
+    const lastLunch = localStorage.getItem(LUNCH_KEY);
+    const today = new Date().toDateString(); 
+    return lastLunch === today;
+}
+
+// Controla o Estado
+function toggleLunchState(active) {
+    if (!detector) return;
+    
+    isLunching = active;
+    detector.state.monitoring = !active;
+
+    if (active) {
+        // --- INICIANDO ALMOÇO ---
+        detector.stopAlarm();
+        detector.updateUI("PAUSA: ALMOÇO 🍔");
+        
+        // CSS: Trava a tela
+        appContainer.classList.add('lunch-mode');
+        
+        // Lógica
+        if(btnLunch) btnLunch.classList.add('active');
+        localStorage.setItem(LUNCH_KEY, new Date().toDateString());
+        
+        // Log
+        logLunchAction("LUNCH_START");
+        console.log("🍔 Almoço INICIADO. Tela travada.");
+
+    } else {
+        // --- FINALIZANDO ALMOÇO ---
+        detector.updateUI("ATIVO");
+        
+        // CSS: Destrava a tela
+        appContainer.classList.remove('lunch-mode');
+
+        if(btnLunch) {
+            btnLunch.classList.remove('active');
+            // Bloqueia visualmente o botão pois já usou a cota do dia
+            btnLunch.disabled = true;
+            btnLunch.style.opacity = "0.5";
+            btnLunch.style.filter = "grayscale(1)";
+        }
+        
+        // Log
+        logLunchAction("LUNCH_END");
+        console.log("▶️ Almoço FINALIZADO. Sistema retomado.");
+    }
+}
+
+// Click Listener
+if (btnLunch) {
+    // Checa estado inicial ao carregar a página
+    if (hasLunchToday()) {
+        btnLunch.disabled = true;
+        btnLunch.style.opacity = "0.5";
+        btnLunch.style.filter = "grayscale(1)";
+    }
+
+    btnLunch.addEventListener('click', () => {
+        // 1. Se já está almoçando, o clique serve para VOLTAR (destravar tela)
+        if (isLunching) {
+            toggleLunchState(false);
+            return;
+        }
+
+        // 2. Se não está almoçando, verifica bloqueio
+        if (hasLunchToday()) {
+            alert("⛔ Pausa já utilizada hoje!");
+            return;
+        }
+
+        // 3. Abre confirmação
+        toggleModal(lunchModal, true);
+    });
+}
+
+// Modais
+if (btnLunchConfirm) {
+    btnLunchConfirm.addEventListener('click', () => {
+        toggleLunchState(true);
+        toggleModal(lunchModal, false);
+    });
+}
+if (btnLunchCancel) {
+    btnLunchCancel.addEventListener('click', () => {
+        toggleModal(lunchModal, false);
+    });
+}
+
+// Debug Terminal
+window.resetLunch = function() {
+    console.clear();
+    console.log("🛠️ RESETANDO LÓGICA DE ALMOÇO...");
+    isLunching = false;
+    localStorage.removeItem(LUNCH_KEY);
+    
+    // Remove trava visual
+    if(appContainer) appContainer.classList.remove('lunch-mode');
+    
+    if (detector) {
+        detector.state.monitoring = true;
+        detector.updateUI("ATIVO (Resetado)");
+    }
+    if (btnLunch) {
+        btnLunch.classList.remove('active');
+        btnLunch.disabled = false;
+        btnLunch.style.opacity = "1";
+        btnLunch.style.filter = "none";
+    }
+    if (lunchModal) toggleModal(lunchModal, false);
+    console.log("✅ Reset concluído.");
+};

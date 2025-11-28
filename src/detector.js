@@ -110,7 +110,7 @@ export class DrowsinessDetector {
             const isSystemArmed = this.state.longBlinksCount >= REQUIRED_LONG_BLINKS;
 
             if (timeClosed > 1000 && timeClosed % 1000 < 50) {
-                console.log(`⏱️ Tempo: ${timeClosed}ms`);
+        //        console.log(`⏱️ Tempo: ${timeClosed}ms`);
             }
 
             // 1. REGRA DE OURO: TEMPO CRÍTICO (Prioridade)
@@ -155,7 +155,7 @@ export class DrowsinessDetector {
     triggerLongBlink() {
         this.state.longBlinksCount++;
         this.state.justTriggeredLongBlink = true;
-        console.log(`⚠️ Piscada Contada: ${this.state.longBlinksCount}`);
+    //    console.log(`⚠️ Piscada Contada: ${this.state.longBlinksCount}`);
         this.updateUICounters();
     }
 

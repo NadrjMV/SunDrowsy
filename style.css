@@ -115,6 +115,37 @@ body {
     font-weight: 500;
     font-size: 0.95rem;
 }
+
+.nav-btn.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: transparent !important;
+    color: var(--text-muted) !important;
+    border: 1px dashed var(--glass-border);
+}
+
+/* Destaca quando estiver Almoçando */
+.nav-btn.active span {
+    color: var(--primary);
+}
+
+/* Adicione no style.css para posicionar o botão de Almoço acima do de Calibração */
+#btn-fab-lunch {
+    bottom: 110px; /* Fica acima do botão de calibração (que está em 30px + 64px altura + margem) */
+    background: #fff;
+    color: #000;
+}
+#btn-fab-lunch.active {
+    background: #FF9500; /* Laranja para indicar ação/pausa */
+    animation: pulse 2s infinite;
+}
+#btn-fab-lunch:disabled {
+    background: #333;
+    color: #555;
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
 .nav-btn:hover { background: rgba(255,255,255,0.03); color: var(--text-main); }
 .nav-btn.active { background: rgba(255, 208, 40, 0.1); color: var(--primary); border: 1px solid rgba(255, 208, 40, 0.1); }
 .nav-btn.logout { margin-top: auto; color: var(--danger); }
@@ -350,4 +381,82 @@ hr {
     background-color: var(--bg-dark); /* Fundo escuro para a lista suspensa */
     color: var(--text-main);
     border: none;
+}
+
+/* --- Estilo da Lista de Histórico (Timeline) --- */
+.history-item {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 12px;
+    border-bottom: 1px solid var(--glass-border);
+}
+.history-item:last-child { border-bottom: none; }
+
+.history-time {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-family: monospace;
+}
+
+.history-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.05);
+}
+.history-icon span { font-size: 18px; }
+
+/* Cores de ícone */
+.history-icon.danger { color: var(--danger); background: rgba(255, 69, 58, 0.1); }
+.history-icon.safe { color: var(--safe); background: rgba(50, 215, 75, 0.1); }
+.history-icon.primary { color: var(--primary); background: rgba(255, 208, 40, 0.1); }
+
+.history-msg {
+    font-size: 0.9rem;
+    color: var(--text-main);
+    flex: 1;
+}
+
+/* --- MODO ALMOÇO (Lock Screen) --- */
+/* Ofusca o conteúdo principal */
+.lunch-mode .sidebar,
+.lunch-mode .content {
+    filter: blur(12px) brightness(0.2); /* Borra e escurece */
+    pointer-events: none; /* Bloqueia cliques */
+    transition: all 0.5s ease;
+}
+
+/* Destaca o botão de almoço */
+.lunch-mode #btn-fab-lunch {
+    z-index: 9999; /* Garante que fica no topo */
+    transform: scale(1.3) !important; /* Aumenta o tamanho */
+    background: #FF9500 !important; /* Laranja forte */
+    box-shadow: 0 0 0 10000px rgba(0,0,0,0.7), /* Cria um overlay escuro na tela toda */
+                0 0 30px #FF9500; /* Glow no botão */
+    animation: lunchPulse 2s infinite;
+}
+
+/* Texto informativo (opcional, aparece via ::after no botão ou na tela) */
+.lunch-mode::after {
+    content: "EM PAUSA - ALMOÇO";
+    position: fixed;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 2rem;
+    font-weight: 800;
+    z-index: 9999;
+    text-shadow: 0 0 20px rgba(255, 149, 0, 0.5);
+    pointer-events: none;
+}
+
+@keyframes lunchPulse {
+    0% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 0 rgba(255, 149, 0, 0.4); }
+    70% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 30px rgba(255, 149, 0, 0); }
+    100% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 0 rgba(255, 149, 0, 0); }
 }
