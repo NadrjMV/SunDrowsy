@@ -41,76 +41,110 @@ document.getElementById('btn-logout').addEventListener('click', () => {
 
 auth.onAuthStateChanged(async (user) => {
     if (user) {
-        // ESCONDE LOGIN
+        // Transição de Login
         loginView.classList.remove('active');
         loginView.classList.add('hidden');
-        
-        // MOSTRA APP (com pequeno delay para animação funcionar)
         appView.classList.remove('hidden');
         setTimeout(() => appView.classList.add('active'), 100);
 
-        // Preenche dados do usuário
         document.getElementById('user-name').innerText = user.displayName;
         document.getElementById('user-photo').src = user.photoURL;
         
         initSystem();
         
-        // Carrega calibração
+        // Carrega Dados do Usuário (Role + Calibração)
         try {
             const doc = await db.collection('users').doc(user.uid).get();
-            if(doc.exists && doc.data().calibration) {
-                detector.config = { ...detector.config, ...doc.data().calibration };
-                detector.state.isCalibrated = true;
-                console.log("Calibração carregada.");
+            let userRole = 'MOTORISTA'; 
+
+            if(doc.exists) {
+                // Define Role (Motorista/Vigia)
+                if(doc.data().role) userRole = doc.data().role;
+                
+                // Define Calibração
+                if(doc.data().calibration && detector) {
+                    detector.config = { ...detector.config, ...doc.data().calibration };
+                    detector.state.isCalibrated = true;
+                    console.log("Calibração carregada.");
+                } else {
+                    toggleModal(calibModal, true);
+                }
             } else {
                 toggleModal(calibModal, true);
             }
+            
+            // Sincroniza Interface e Detector
+            if(detector) detector.setRole(userRole);
+            const roleSel = document.getElementById('role-selector');
+            const roleDisp = document.getElementById('user-role-display');
+            
+            if(roleSel) roleSel.value = userRole;
+            if(roleDisp) roleDisp.innerText = userRole;
+
         } catch (e) {
-            console.log("Erro calibração:", e);
+            console.log("Erro ao carregar dados:", e);
             toggleModal(calibModal, true);
         }
         
     } else {
-        // LOGOUT: INVERTE A LÓGICA
+        // Logout
         appView.classList.remove('active');
         appView.classList.add('hidden');
-        
         loginView.classList.remove('hidden');
         setTimeout(() => loginView.classList.add('active'), 100);
-        
         stopSystem();
     }
 });
 
-// Fechar modais ao clicar no X
-document.querySelectorAll('.close-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-        const modal = e.target.closest('.modal');
-        toggleModal(modal, false);
-    });
-});
+// --- LÓGICA DE MODAIS ---
+function toggleModal(modal, show) {
+    if (show) {
+        modal.classList.remove('hidden');
+        setTimeout(() => { modal.style.opacity = '1'; }, 10);
+    } else {
+        modal.style.opacity = '0';
+        setTimeout(() => modal.classList.add('hidden'), 300);
+    }
+}
 
-// Fechar ao clicar fora
+document.querySelectorAll('.close-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => toggleModal(e.target.closest('.modal'), false));
+});
 window.addEventListener('click', (e) => {
     if (e.target === calibModal) toggleModal(calibModal, false);
     if (e.target === tutorialModal) toggleModal(tutorialModal, false);
 });
-
-// Botões de Ação
 btnFabCalibrate.addEventListener('click', () => toggleModal(calibModal, true));
 btnTutorialOpen.addEventListener('click', () => {
-    // Reseta o tutorial para o passo 1 sempre que abrir
-    currentStep = 1;
-    updateWizard(1);
-    toggleModal(tutorialModal, true);
+    currentStep = 1; updateWizard(1); toggleModal(tutorialModal, true);
 });
 
-// --- INICIALIZAÇÃO DO MEDIAPIPE ---
-function initSystem() {
-    if (detector) return; // Evita dupla inicialização
+// Lógica do Seletor de Perfil
+const roleSelector = document.getElementById('role-selector');
+if(roleSelector) {
+    roleSelector.addEventListener('change', (e) => {
+        if (detector) {
+            detector.setRole(e.target.value);
+            const roleDisp = document.getElementById('user-role-display');
+            if(roleDisp) roleDisp.innerText = e.target.value;
+            
+            if (auth.currentUser) {
+                db.collection('users').doc(auth.currentUser.uid).set({
+                    role: e.target.value
+                }, { merge: true });
+            }
+        }
+    });
+}
 
-    detector = new DrowsinessDetector(audioMgr, updateDashboardUI);
+// --- INIT SYSTEM (Volta para a classe Camera padrão para estabilidade) ---
+function initSystem() {
+    if (detector) return;
+
+    // Callback vazio pois o detector atualiza a UI diretamente
+    detector = new DrowsinessDetector(audioMgr, () => {}); 
     detector.state.monitoring = true;
+    detector.updateUI("AGUARDANDO CÂMERA...");
 
     faceMesh = new FaceMesh({locateFile: (file) => {
         return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
@@ -125,6 +159,7 @@ function initSystem() {
 
     faceMesh.onResults(onResults);
 
+    // Configuração HD na classe Camera padrão
     camera = new Camera(videoElement, {
         onFrame: async () => {
             await faceMesh.send({image: videoElement});
@@ -140,154 +175,82 @@ function stopSystem() {
     if (camera) camera.stop();
 }
 
-// --- LOOP PRINCIPAL ---
+// --- LOOP DE PROCESSAMENTO (Conecta Detector Novo + Visual Limpo) ---
 function onResults(results) {
+    // Desenha o vídeo espelhado
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
     canvasCtx.save();
     canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
     
-    // 1. Aplica espelhamento no contexto
     canvasCtx.translate(canvasElement.width, 0);
     canvasCtx.scale(-1, 1);
-    
-    // 2. Desenha a imagem espelhada
     canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
     
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
         
-        // 3. Desenha a malha (LANDMARKS) no contexto ESPELHADO
-        drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#C0C0C040', lineWidth: 1});
+        // 1. Desenha a Máscara Sutil (Sem olhos coloridos, apenas malha e contorno)
+        drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: '#F0F0F020', lineWidth: 0.5});
+        drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD02880', lineWidth: 1.5});
         
-        if (detector) detector.processLandmarks(landmarks);
+        // 2. Calcula EAR aqui no App
+        const leftEAR = calculateEAR(landmarks, LANDMARKS.LEFT_EYE);
+        const rightEAR = calculateEAR(landmarks, LANDMARKS.RIGHT_EYE);
+        const avgEAR = (leftEAR + rightEAR) / 2.0;
+
+        // 3. Envia para a nova lógica de detecção (0/3 piscadas)
+        if (detector) detector.processDetection(avgEAR, 0);
+    } else {
+        // Se perder o rosto
+        if (detector && detector.state.isCalibrated) {
+            detector.updateUI("ATENÇÃO: ROSTO NÃO DETECTADO");
+        }
     }
     
-    // 4. RESTAURA o contexto para o normal (para futura escrita de texto, etc.)
     canvasCtx.restore(); 
 }
 
-// --- UI UPDATES ---
-function updateDashboardUI(status) {
-    document.getElementById('system-status').innerText = status.text;
-    document.getElementById('blink-counter').innerText = status.blinks || 0;
-    
-    if (status.alarm) {
-        alertOverlay.classList.remove('hidden');
-        document.getElementById('fatigue-level').innerText = "CRÍTICO";
-        document.getElementById('fatigue-level').className = "value danger";
-    } else {
-        alertOverlay.classList.add('hidden');
-        document.getElementById('fatigue-level').innerText = status.blinks >= 3 ? "ALTA" : "NORMAL";
-        document.getElementById('fatigue-level').className = status.blinks >= 3 ? "value danger" : "value safe";
-    }
-}
+// Wrapper legado (caso algo ainda chame, mas o detector manipula DOM direto)
+function updateDashboardUI(status) {}
 
-
-// --- LÓGICA DO TUTORIAL WIZARD ---
+// --- CALIBRAÇÃO (Lógica Visual) ---
 let currentStep = 1;
 const totalSteps = 3;
-
 const wizardSteps = document.querySelectorAll('.wizard-step');
 const dots = document.querySelectorAll('.dot');
 const btnNext = document.getElementById('btn-next-step');
 const btnPrev = document.getElementById('btn-prev-step');
 
 function updateWizard(step) {
-    // Esconde todos
     wizardSteps.forEach(s => s.classList.remove('active'));
     dots.forEach(d => d.classList.remove('active'));
-    
-    // Mostra atual
     const activeStep = document.querySelector(`.wizard-step[data-step="${step}"]`);
     const activeDot = document.querySelector(`.dot[data-index="${step}"]`);
-    
     if(activeStep) activeStep.classList.add('active');
     if(activeDot) activeDot.classList.add('active');
     
-    // Controla botões
-    if (step === 1) {
-        btnPrev.style.opacity = '0';
-        btnPrev.style.pointerEvents = 'none';
-    } else {
-        btnPrev.style.opacity = '1';
-        btnPrev.style.pointerEvents = 'all';
-    }
-
-    if (step === totalSteps) {
-        btnNext.innerHTML = 'Começar <span class="material-icons-round">check</span>';
-    } else {
-        btnNext.innerHTML = 'Próximo';
-    }
+    if (step === 1) { btnPrev.style.opacity = '0'; btnPrev.style.pointerEvents = 'none'; }
+    else { btnPrev.style.opacity = '1'; btnPrev.style.pointerEvents = 'all'; }
+    btnNext.innerHTML = step === totalSteps ? 'Começar <span class="material-icons-round">check</span>' : 'Próximo';
 }
 
-btnNext.addEventListener('click', () => {
-    if (currentStep < totalSteps) {
-        currentStep++;
-        updateWizard(currentStep);
-    } else {
-        // Fim do tutorial
-        toggleModal(document.getElementById('tutorial-modal'), false);
-    }
+if(btnNext) btnNext.addEventListener('click', () => {
+    if (currentStep < totalSteps) { currentStep++; updateWizard(currentStep); }
+    else { toggleModal(tutorialModal, false); }
+});
+if(btnPrev) btnPrev.addEventListener('click', () => {
+    if (currentStep > 1) { currentStep--; updateWizard(currentStep); }
 });
 
-btnPrev.addEventListener('click', () => {
-    if (currentStep > 1) {
-        currentStep--;
-        updateWizard(currentStep);
-    }
-});
-
-// --- LÓGICA DE MODAIS ---
-const closeCalibBtn = document.getElementById('close-calib');
-const closeTutorialBtn = document.getElementById('close-tutorial');
-
-function toggleModal(modal, show) {
-    if (show) {
-        modal.classList.remove('hidden');
-        // Pequeno delay para permitir a transição CSS de opacidade
-        setTimeout(() => { modal.style.opacity = '1'; }, 10);
-    } else {
-        modal.style.opacity = '0';
-        setTimeout(() => modal.classList.add('hidden'), 300);
-    }
-}
-
-// --- LÓGICA DO SELETOR DE PERFIL ---
-const roleSelector = document.getElementById('role-selector');
-if(roleSelector) {
-    roleSelector.addEventListener('change', (e) => {
-        if (detector) {
-            detector.setRole(e.target.value);
-            // Salva a nova função do usuário no Firebase
-            if (auth.currentUser) {
-                db.collection('users').doc(auth.currentUser.uid).update({
-                    role: e.target.value
-                });
-            }
-        }
-    });
-}
-
-// Fechar com X
-if(closeCalibBtn) closeCalibBtn.addEventListener('click', () => toggleModal(calibModal, false));
-if(closeTutorialBtn) closeTutorialBtn.addEventListener('click', () => toggleModal(tutorialModal, false));
-
-
-// --- CALIBRAÇÃO LÓGICA ---
 btnStartCalib.addEventListener('click', async () => {
-    // Resume audio context
     audioMgr.audioContext.resume();
-    
     btnStartCalib.disabled = true;
     
-    // FASE 1: Olhos Abertos
     calibText.innerText = "Mantenha os olhos ABERTOS...";
     calibProgress.style.width = "30%";
-    
     await new Promise(r => setTimeout(r, 3000));
     
-    // FASE 2: Olhos Fechados
     calibText.innerText = "Agora FECHE os olhos...";
     calibProgress.style.width = "60%";
     await new Promise(r => setTimeout(r, 3000));
@@ -295,8 +258,8 @@ btnStartCalib.addEventListener('click', async () => {
     calibText.innerText = "Calibração Concluída!";
     calibProgress.style.width = "100%";
     
-    // Calibração Padrão (Fallback seguro)
-    detector.setCalibration(0.15, 0.30, 0.50); 
+    // Configura Detector com valores padrão seguros
+    if(detector) detector.setCalibration(0.15, 0.30, 0.50); 
 
     setTimeout(() => {
         toggleModal(calibModal, false);

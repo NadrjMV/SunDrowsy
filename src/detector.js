@@ -1,112 +1,134 @@
 import { calculateEAR, calculateMAR, LANDMARKS } from './vision-logic.js';
 import { db, auth } from './firebase-config.js';
 
+// --- CONFIGURAÇÕES DE FÁBRICA (Fallback) ---
+const FACTORY_CONFIG = {
+    CRITICAL_TIME_MS: 20000,   // 20s = Alarme Máximo (Sono Profundo)
+    MICROSLEEP_TIME_MS: 3000,  // 3s = Alarme Intermediário (Só se já tiver piscadas)
+    LONG_BLINK_TIME_MS: 400,   // 400ms = Duração de uma piscada de sono
+    REQUIRED_LONG_BLINKS: 3,   // Quantidade de piscadas para armar o sistema
+    BLINK_WINDOW_MS: 15000,    // 15s para resetar a contagem se o motorista acordar
+    EAR_THRESHOLD: 0.25,       // Ajustado na calibração
+    MAR_THRESHOLD: 0.50,       // Ajustado na calibração
+    role: 'MOTORISTA'
+};
+
 export class DrowsinessDetector {
     constructor(audioManager, onStatusChange) {
         this.audioManager = audioManager;
-        this.onStatusChange = onStatusChange; // Callback para atualizar UI
+        this.onStatusChange = onStatusChange;
         
-        // CONFIGURAÇÕES PADRÃO (serão sobrescritas pela calibração)
-        this.config = {
-            EAR_THRESHOLD: 0.25,
-            MAR_THRESHOLD: 0.50,
-            // 20 segundos @ 30fps (aprox) = 600 frames. 
-            // Porém, JS não é fps fixo. Usaremos timestamps para precisão.
-            CRITICAL_TIME_MS: 3000, // 20 segundos para alarme FINAL
-            LONG_BLINK_TIME_MS: 400, // 400ms = piscada longa (sinal de sono)
-            REQUIRED_LONG_BLINKS: 3  // Precisa de 3 sinais para armar o sistema
-        };
+        // Carrega configurações padrão
+        this.config = { ...FACTORY_CONFIG };
 
-        // Estado do Sistema
+        // Estado inicial
         this.state = {
             isCalibrated: false,
             eyesClosedSince: null,
             longBlinksCount: 0,
             longBlinksWindowStart: Date.now(),
             isAlarmActive: false,
-            monitoring: false
+            monitoring: false,
+            justTriggeredLongBlink: false
         };
     }
 
+    setRole(newRole) {
+        this.config.role = newRole;
+        console.log(`Perfil atualizado: ${newRole}`);
+    }
+
     setCalibration(earClosed, earOpen, marOpen) {
-        // Lógica de Threshold igual ao seu Python
-        this.config.EAR_THRESHOLD = earClosed + (earOpen - earClosed) * 0.2;
-        this.config.MAR_THRESHOLD = marOpen * 0.5;
+        const calibratedEAR = earClosed + (earOpen - earClosed) * 0.2;
+        const calibratedMAR = marOpen * 0.5;
+
+        this.config.EAR_THRESHOLD = calibratedEAR;
+        this.config.MAR_THRESHOLD = calibratedMAR;
         this.state.isCalibrated = true;
         
-        // Salva no Firebase
         if(auth.currentUser) {
             db.collection('users').doc(auth.currentUser.uid).set({
                 calibration: this.config
             }, { merge: true });
         }
-        console.log("Sistema Calibrado:", this.config);
+        
+        this.updateUI("Calibração concluída. Monitorando...");
     }
 
-    processLandmarks(landmarks) {
-        if (!this.state.monitoring || !this.state.isCalibrated) return;
-
-        const leftEAR = calculateEAR(landmarks, LANDMARKS.LEFT_EYE);
-        const rightEAR = calculateEAR(landmarks, LANDMARKS.RIGHT_EYE);
-        const avgEAR = (leftEAR + rightEAR) / 2.0;
+    // --- A FUNÇÃO QUE ESTAVA FALTANDO ---
+    processDetection(ear, mar) {
+        if (!this.state.monitoring || !this.state.isCalibrated) {
+            // Se não calibrado, apenas ignora
+            return;
+        }
 
         const now = Date.now();
+        const { EAR_THRESHOLD, CRITICAL_TIME_MS, MICROSLEEP_TIME_MS, LONG_BLINK_TIME_MS, REQUIRED_LONG_BLINKS, BLINK_WINDOW_MS } = this.config;
 
-        // --- LÓGICA DE DETECÇÃO ---
+        // Reset da janela de tempo (zera contagem se passar 15s sem incidentes)
+        if (now - this.state.longBlinksWindowStart > BLINK_WINDOW_MS) {
+            if (this.state.longBlinksCount > 0) {
+                this.state.longBlinksCount = 0;
+            }
+            this.state.longBlinksWindowStart = now;
+        }
 
-        if (avgEAR < this.config.EAR_THRESHOLD) {
-            // Olhos Fechados
+        // --- LÓGICA DE OLHOS FECHADOS ---
+        if (ear < EAR_THRESHOLD) {
             if (this.state.eyesClosedSince === null) {
                 this.state.eyesClosedSince = now;
             }
 
-            const closedDuration = now - this.state.eyesClosedSince;
-
-            // 1. Verifica se já atingiu o tempo CRÍTICO (20s)
-            // SÓ DISPARA SE já tivermos acumulado piscadas longas (Sinais de fadiga)
-            if (this.state.longBlinksCount >= this.config.REQUIRED_LONG_BLINKS) {
-                if (closedDuration > this.config.CRITICAL_TIME_MS) {
-                    this.triggerAlarm("CRÍTICO: Olhos fechados por 20s!");
-                }
-            } else {
-                // Se não tem piscadas longas suficientes, ainda não dispara o de 20s (evita falso positivo se o cara só estiver olhando pra baixo limpando algo rápido, mas idealmente 20s é muito tempo kkk)
-                // Numa situação real de direção, 20s é morte. Mas estou seguindo a regra.
-                // Vou adicionar um fallback: Se passar de 25s, toca mesmo sem validação.
-                 if (closedDuration > 25000) this.triggerAlarm("FALLBACK: Olhos fechados tempo excessivo!");
+            const timeClosed = now - this.state.eyesClosedSince;
+            const isSystemArmed = this.state.longBlinksCount >= REQUIRED_LONG_BLINKS;
+            
+            // 1. Contabiliza Piscada Longa (Silencioso até o limite)
+            if (timeClosed >= LONG_BLINK_TIME_MS && !this.state.justTriggeredLongBlink) {
+                this.triggerLongBlink();
             }
 
-        } else {
-            // Olhos Abertos -> Analisa o que aconteceu
+            // 2. Alarmes de Tempo (Crítico e Microssono)
+            if (timeClosed >= CRITICAL_TIME_MS) {
+                // Nível 2: 20s fechado direto (Dormiu)
+                this.triggerAlarm("PERIGO: SONO PROFUNDO (20s)");
+            } else if (isSystemArmed && timeClosed >= MICROSLEEP_TIME_MS) {
+                // Nível 1: 3s fechado (Só toca se já acumulou 3 piscadas)
+                this.triggerAlarm("MICROSSONO DETECTADO (FADIGA ALTA)");
+            }
+
+        } 
+        // --- LÓGICA DE OLHOS ABERTOS ---
+        else {
             if (this.state.eyesClosedSince !== null) {
-                const duration = now - this.state.eyesClosedSince;
-                
-                // Foi uma piscada longa? (Entre 400ms e 2s)
-                if (duration > this.config.LONG_BLINK_TIME_MS && duration < 2000) {
-                    this.registerLongBlink();
-                }
-                
                 this.state.eyesClosedSince = null;
-                this.stopAlarm(); // Se abriu o olho, para o alarme
+                this.state.justTriggeredLongBlink = false;
+
+                // Se o alarme não está tocando, atualiza status visual
+                if (!this.state.isAlarmActive) {
+                    if (this.state.longBlinksCount >= REQUIRED_LONG_BLINKS) {
+                        this.updateUI("ALERTA: FADIGA ALTA. PRÓXIMO FECHAMENTO DISPARA.");
+                    } else {
+                        this.updateUI("Monitorando...");
+                    }
+                } else {
+                    // Se abriu o olho e estava tocando alarme, para o som
+                    this.stopAlarm();
+                }
             }
         }
         
-        // Reset da janela de tempo de piscadas longas (Ex: Zera contagem a cada 2 mins)
-        if (now - this.state.longBlinksWindowStart > 120000) {
-            this.state.longBlinksCount = 0;
-            this.state.longBlinksWindowStart = now;
-            this.updateUI("Fadiga Resetada");
+        // Atualiza os contadores na tela (ex: 1/3)
+        if (!this.state.isAlarmActive) {
+            this.updateUICounters();
         }
     }
 
-    registerLongBlink() {
+    triggerLongBlink() {
         this.state.longBlinksCount++;
-        this.updateUI(`Sinal de Sono detectado! (${this.state.longBlinksCount}/3)`);
+        this.state.justTriggeredLongBlink = true; // Trava para não contar a mesma piscada 2x
         
-        // Feedback sonoro sutil (opcional) ou visual
-        // Se chegou no limite de validação
-        if (this.state.longBlinksCount >= this.config.REQUIRED_LONG_BLINKS) {
-            this.updateUI("ALERTA: FADIGA ALTA. PRÓXIMO FECHAMENTO DISPARA ALARME.");
-        }
+        // Apenas atualiza visualmente, não toca som ainda (exceto se for o trigger do 3/3)
+        this.updateUICounters(); 
     }
 
     triggerAlarm(reason) {
@@ -122,7 +144,8 @@ export class DrowsinessDetector {
                     uid: auth.currentUser.uid,
                     timestamp: new Date(),
                     type: "ALARM",
-                    reason: reason
+                    reason: reason,
+                    role: this.config.role
                 });
             }
         }
@@ -132,15 +155,42 @@ export class DrowsinessDetector {
         if (this.state.isAlarmActive) {
             this.state.isAlarmActive = false;
             this.audioManager.stopAlert();
-            this.onStatusChange({ alarm: false, text: "Monitorando..." });
+            this.updateUI("Monitorando...");
         }
     }
 
-    updateUI(statusText) {
-        this.onStatusChange({ 
-            alarm: this.state.isAlarmActive, 
-            text: statusText, 
-            blinks: this.state.longBlinksCount 
-        });
+    updateUI(text) {
+        const el = document.getElementById('system-status');
+        if(el) el.innerText = text;
+        
+        const overlay = document.getElementById('danger-alert');
+        if(overlay) {
+            if (this.state.isAlarmActive) overlay.classList.remove('hidden');
+            else overlay.classList.add('hidden');
+        }
+    }
+
+    updateUICounters() {
+        const count = this.state.longBlinksCount;
+        const max = this.config.REQUIRED_LONG_BLINKS;
+        
+        // Atualiza números
+        const counterEl = document.getElementById('blink-counter');
+        if(counterEl) counterEl.innerText = `${count}/${max}`;
+        
+        // Atualiza Badge Colorida
+        const levelEl = document.getElementById('fatigue-level');
+        if(levelEl) {
+            if (count >= max) {
+                levelEl.innerText = "FADIGA";
+                levelEl.className = "value danger";
+            } else if (count > 0) {
+                levelEl.innerText = "ATENÇÃO";
+                levelEl.className = "value warning"; // Se não tiver classe warning no CSS, ele vai ficar branco/padrão, adicione se quiser amarelo
+            } else {
+                levelEl.innerText = "ATIVO";
+                levelEl.className = "value safe";
+            }
+        }
     }
 }
