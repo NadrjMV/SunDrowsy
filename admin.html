@@ -37,15 +37,22 @@
                 <header class="header-dash">
                     <div>
                         <h1 style="margin: 0; font-size: 1.8rem;">Monitoramento de Segurança</h1>
-                        <small style="color: var(--text-muted);">Visão em tempo real da equipe e operações</small>
+                        <small style="color: var(--text-muted);">Visão em tempo real da equipe e operações</small><br><br>
                     </div>
                     <div style="display: flex; gap: 12px; align-items: center;">
+                        
+                        <span style="color: var(--text-muted); font-size: 0.9rem;">Filtrar:</span>
+                        <select id="user-filter" class="date-filter" style="width: 180px;">
+                            <option value="ALL">Todos os Usuários</option>
+                        </select>
+
                         <span style="color: var(--text-muted); font-size: 0.9rem;">Período:</span>
                         <select id="period-filter" class="date-filter">
                             <option value="today">Hoje</option>
                             <option value="week">Últimos 7 dias</option>
                             <option value="month">Este Mês</option>
                         </select>
+                        
                         <div class="user-badge" style="margin: 0; background: transparent;">
                             <img id="admin-photo" src="" style="width: 32px; height: 32px; border-radius: 50%;">
                         </div>

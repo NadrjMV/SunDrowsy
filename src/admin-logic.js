@@ -1,5 +1,6 @@
 import { auth, db, googleProvider } from './firebase-config.js';
 
+// ELEMENTOS KPI
 const kpiAlerts = document.getElementById('kpi-alerts');
 const kpiMicrosleeps = document.getElementById('kpi-microsleeps');
 const kpiLunches = document.getElementById('kpi-lunches');
@@ -7,32 +8,34 @@ const kpiActiveUsers = document.getElementById('kpi-active-users');
 
 const tableBody = document.getElementById('logs-table-body');
 const periodFilter = document.getElementById('period-filter');
+
+const userFilter = document.getElementById('user-filter'); // NOVO SELETOR
 const teamGrid = document.getElementById('team-grid-container');
 
 const navBtns = document.querySelectorAll('.nav-btn[data-view]');
 const views = document.querySelectorAll('.admin-view');
 
+// Elementos Add Membro e Convite (Mantidos iguais)
 const btnAddMember = document.getElementById('btn-add-member');
 const addMemberModal = document.getElementById('add-member-modal');
 const closeMemberModal = document.getElementById('close-add-member');
-const formAddMember = document.getElementById('form-add-member');
-
-// NOVOS SELETORES
+const formAddMember = document.getElementById('form-add-member'); // (Se existir, mantive por compatibilidade)
 const inviteResultModal = document.getElementById('invite-result-modal');
 const closeInviteResult = document.getElementById('close-invite-result');
 const formCreateInvite = document.getElementById('form-create-invite');
-
-// Elementos do Modal de Resultado
 const resultLinkInput = document.getElementById('result-link');
 const resultMsgDiv = document.getElementById('result-message');
 const btnCopyLink = document.getElementById('btn-copy-link');
 const btnCopyMsg = document.getElementById('btn-copy-msg');
 const btnShareWpp = document.getElementById('btn-share-wpp');
 
+// ESTADO GLOBAL
 let charts = {}; 
 let unsubscribeLogs = null;
 let unsubscribeTeam = null;
+let globalRawLogs = []; // Armazena todos os logs antes de filtrar
 
+// --- AUTH & INIT ---
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
         window.location.href = 'index.html';
@@ -53,7 +56,7 @@ auth.onAuthStateChanged(async (user) => {
         if(adminPhoto) adminPhoto.src = user.photoURL;
         
         setupRealtimeDashboard('today');
-        setupTeamListener();
+        setupTeamListener(); // Agora também popula o select de filtro
 
     } catch (error) {
         console.error("Erro de permissão:", error);
@@ -61,11 +64,11 @@ auth.onAuthStateChanged(async (user) => {
     }
 });
 
+// --- NAVEGAÇÃO ---
 navBtns.forEach(btn => {
     btn.addEventListener('click', () => {
         navBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-
         const viewId = btn.getAttribute('data-view');
         views.forEach(v => v.classList.remove('active'));
         const view = document.getElementById(`view-${viewId}`);
@@ -73,6 +76,7 @@ navBtns.forEach(btn => {
     });
 });
 
+// --- LISTENERS DOS FILTROS ---
 if(periodFilter) {
     periodFilter.addEventListener('change', (e) => {
         if (unsubscribeLogs) unsubscribeLogs();
@@ -80,17 +84,28 @@ if(periodFilter) {
     });
 }
 
+// NOVO: Listener do Filtro de Usuário
+if(userFilter) {
+    userFilter.addEventListener('change', () => {
+        filterAndRenderLogs(); // Apenas filtra o que já está na memória
+    });
+}
+
+// --- LÓGICA DO DASHBOARD ---
 function setupRealtimeDashboard(period) {
     console.log(`📡 Conectando stream: ${period}`);
     if(tableBody) tableBody.style.opacity = '0.5';
 
+    // Determina a query baseada na data (Simplificado para 'today' por enquanto)
     const now = new Date();
+    // Lógica simples de data (Pode ser expandida para query range no futuro)
     const todayFolder = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
     
     let query;
     try {
         query = db.collectionGroup(todayFolder);
     } catch (e) {
+        // Fallback se collectionGroup falhar (indexes)
         query = db.collection('logs').doc(auth.currentUser.uid).collection(todayFolder);
     }
 
@@ -98,167 +113,146 @@ function setupRealtimeDashboard(period) {
         const logs = [];
         snapshot.forEach(doc => {
             const data = doc.data();
+            // Tenta pegar o UID do path se não vier no documento
             const uidFromPath = doc.ref.parent.parent ? doc.ref.parent.parent.id : null;
-            logs.push({ ...data, uid: uidFromPath || data.uid });
+            logs.push({ ...data, uid: data.uid || uidFromPath });
         });
         
+        // Salva no global e renderiza
+        globalRawLogs = logs;
         if(tableBody) tableBody.style.opacity = '1';
-        processLogs(logs);
+        
+        filterAndRenderLogs();
+
     }, (error) => {
         console.error("Erro Stream Logs:", error);
     });
 }
 
+// NOVA FUNÇÃO DE FILTRAGEM
+function filterAndRenderLogs() {
+    const selectedUser = userFilter.value;
+    let filteredLogs = [];
+
+    if (selectedUser === 'ALL') {
+        filteredLogs = globalRawLogs;
+    } else {
+        filteredLogs = globalRawLogs.filter(log => log.uid === selectedUser);
+    }
+
+    processLogs(filteredLogs);
+}
+
 function processLogs(logs) {
     logs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 
+    // Cálculos de KPI baseados nos logs filtrados
     const criticalAlerts = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('SONO PROFUNDO')).length;
     const microSleeps = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('MICROSSONO')).length;
     const lunches = logs.filter(l => l.type === 'LUNCH_START').length;
 
+    // Contagem de usuários ativos no filtro atual
     const uniqueUsers = new Set();
     logs.forEach(l => {
         if (l.uid) uniqueUsers.add(l.uid);
         else if (l.userName) uniqueUsers.add(l.userName);
     });
-    if (auth.currentUser) uniqueUsers.add(auth.currentUser.uid);
-    const activeCount = uniqueUsers.size;
-
+    
+    // UI Updates
     animateValue(kpiAlerts, criticalAlerts);
     animateValue(kpiMicrosleeps, microSleeps);
     animateValue(kpiLunches, lunches);
     
     if(kpiActiveUsers) {
-        kpiActiveUsers.innerText = activeCount;
+        const count = uniqueUsers.size;
+        kpiActiveUsers.innerText = count;
         const small = kpiActiveUsers.nextElementSibling;
-        if(small) small.innerText = activeCount === 1 ? "Apenas você online" : `${activeCount} usuários hoje`;
+        
+        if (userFilter.value !== 'ALL') {
+            // Texto específico quando filtrando um usuário
+            if (small) small.innerText = count > 0 ? "Usuário Online" : "Sem dados hoje";
+        } else {
+            if (small) small.innerText = `${count} monitorados hoje`;
+        }
     }
 
     renderCharts(logs);
+    
+    // Filtra apenas alarmes para a tabela detalhada
     const sleepLogs = logs.filter(l => l.type === 'ALARM');
     renderGroupedTable(sleepLogs);
 }
 
-// --- LÓGICA DE GERAR CONVITE (NOVA) ---
-
-// 1. Abrir Modal de Configuração
-if(btnAddMember) {
-    btnAddMember.style.display = 'flex'; // Garante que o botão apareça
-    btnAddMember.addEventListener('click', () => {
-        if(addMemberModal) {
-            addMemberModal.classList.remove('hidden');
-            setTimeout(() => addMemberModal.style.opacity = '1', 10);
-        }
-    });
-}
-
-// 2. Fechar Modais
-[closeMemberModal, closeInviteResult].forEach(btn => {
-    if(btn) btn.addEventListener('click', () => {
-        if(addMemberModal) { addMemberModal.style.opacity = '0'; setTimeout(() => addMemberModal.classList.add('hidden'), 300); }
-        if(inviteResultModal) { inviteResultModal.style.opacity = '0'; setTimeout(() => inviteResultModal.classList.add('hidden'), 300); }
-    });
-});
-
-// 3. Processar Formulário e Gerar Link
-if(formCreateInvite) {
-    formCreateInvite.addEventListener('submit', async (e) => {
-        e.preventDefault();
+// --- EQUIPE & POPULAÇÃO DO FILTRO ---
+function setupTeamListener() {
+    if(!teamGrid) return;
+    
+    unsubscribeTeam = db.collection('users').onSnapshot(snapshot => {
+        teamGrid.innerHTML = ''; 
         
-        const role = document.getElementById('invite-role').value;
-        const uses = parseInt(document.getElementById('invite-uses').value);
-        const days = parseInt(document.getElementById('invite-days').value);
-        const submitBtn = formCreateInvite.querySelector('button[type="submit"]');
-
-        try {
-            submitBtn.disabled = true;
-            submitBtn.innerText = "Gerando...";
-
-            // Gera Token Único
-            const token = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+        // Limpa o select mas mantém a opção "Todos"
+        if(userFilter) {
+            const currentSelection = userFilter.value;
+            userFilter.innerHTML = '<option value="ALL">Todos os Usuários</option>';
             
-            // Calcula Expiração
-            const expiresAt = new Date();
-            expiresAt.setDate(expiresAt.getDate() + days);
+            // Variável auxiliar para repopular o select
+            const usersList = [];
 
-            // Salva no Firestore
-            await db.collection('invites').doc(token).set({
-                token: token,
-                role: role,
-                maxUses: uses,
-                usesLeft: uses,
-                expiresAt: expiresAt,
-                createdBy: auth.currentUser.uid,
-                createdAt: new Date(),
-                active: true
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const uid = doc.id;
+                const displayName = data.displayName || (data.email ? data.email.split('@')[0] : 'Sem Nome');
+                
+                usersList.push({ uid, name: displayName });
+
+                // Renderiza Card na Aba Equipe
+                renderTeamCard(data, displayName);
             });
 
-            // Prepara Dados para Exibição
-            const baseUrl = window.location.href.replace('admin.html', 'index.html'); // Ajusta para root
-            const finalLink = `${baseUrl.split('?')[0]}?convite=${token}`;
-            
-            const msgTemplate = `💼 *Convite Oficial - SunDrowsy*
+            // Popula o Select
+            usersList.forEach(u => {
+                const option = document.createElement('option');
+                option.value = u.uid;
+                option.innerText = u.name;
+                userFilter.appendChild(option);
+            });
 
-Você foi convidado a integrar a plataforma *SunDrowsy* como *${role}*.
-
-📅 Expira em *${days} dia(s)*
-🔢 Válido para *${uses} uso(s)*
-
-*Clique no link abaixo para criar sua conta:*
-${finalLink}
-
-🛡️ *SunDrowsy* — Eficiência e segurança contra a fadiga.`;
-
-            // Popula Modal de Resultado
-            resultLinkInput.value = finalLink;
-            resultMsgDiv.innerText = msgTemplate;
-
-            // Fecha form e abre resultado
-            addMemberModal.style.opacity = '0';
-            setTimeout(() => addMemberModal.classList.add('hidden'), 300);
-            
-            inviteResultModal.classList.remove('hidden');
-            setTimeout(() => inviteResultModal.style.opacity = '1', 300);
-
-            // Configura Botões de Ação
-            setupCopyActions(finalLink, msgTemplate);
-
-            formCreateInvite.reset();
-
-        } catch (error) {
-            console.error("Erro ao gerar convite:", error);
-            alert("Erro: " + error.message);
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerText = "Gerar Link de Convite";
+            // Tenta restaurar a seleção anterior se ainda existir
+            userFilter.value = currentSelection;
         }
+
+    }, error => {
+        console.error("Erro ao carregar equipe:", error);
+        teamGrid.innerHTML = '<div style="color: var(--danger);">Erro ao carregar dados.</div>';
     });
 }
 
-function setupCopyActions(link, msg) {
-    // Copiar Link
-    btnCopyLink.onclick = () => {
-        navigator.clipboard.writeText(link);
-        alert('Link copiado!');
-    };
+function renderTeamCard(data, displayName) {
+    const photo = data.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&background=333`;
+    const isOnline = true; // Placeholder para lógica futura de presença
 
-    // Copiar Mensagem
-    btnCopyMsg.onclick = () => {
-        navigator.clipboard.writeText(msg);
-        alert('Mensagem copiada para a área de transferência!');
-    };
-
-    // WhatsApp Web
-    btnShareWpp.onclick = () => {
-        const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-        window.open(url, '_blank');
-    };
+    const card = `
+        <div class="team-card">
+            <img src="${photo}" class="team-avatar">
+            <h3 style="margin:0; font-size: 1rem;">${displayName}</h3>
+            <p style="color:var(--text-muted); margin:5px 0 15px 0; font-size: 0.85rem;">${data.role || 'Usuário'}</p>
+            <div style="font-size:0.8rem;">
+                <span class="status-dot ${isOnline ? 'status-online' : ''}" style="background:${isOnline ? 'var(--safe)' : '#555'}"></span>
+                <span style="color: var(--text-muted);">${isOnline ? 'Cadastrado' : 'Offline'}</span>
+            </div>
+            ${data.email ? `<small style="display:block; margin-top:10px; font-size:0.7rem; color:var(--text-muted); opacity: 0.7;">${data.email}</small>` : ''}
+        </div>
+    `;
+    teamGrid.innerHTML += card;
 }
+
+// --- TABELA E GRÁFICOS (Mantidos e adaptados) ---
 
 function renderGroupedTable(logs) {
     if(!tableBody) return;
     tableBody.innerHTML = '';
     
+    // Header fixo da tabela
     const tableHeader = document.querySelector('.logs-table-container thead tr');
     if(tableHeader) {
         tableHeader.innerHTML = `
@@ -272,7 +266,7 @@ function renderGroupedTable(logs) {
     if (logs.length === 0) {
         tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">
             <span class="material-icons-round" style="font-size: 24px; vertical-align: middle; margin-right: 8px;">check_circle</span>
-            Nenhum incidente de fadiga registrado agora.
+            Nenhum incidente registrado para este filtro.
         </td></tr>`;
         return;
     }
@@ -288,7 +282,7 @@ function renderGroupedTable(logs) {
             if (currentGroup) groups.push(currentGroup);
             currentGroup = {
                 userId: userId,
-                userName: log.userName || auth.currentUser.displayName || 'Usuário',
+                userName: log.userName || 'Usuário',
                 role: log.role || 'Vigia',
                 items: [log]
             };
@@ -428,66 +422,7 @@ function animateValue(obj, end) {
     window.requestAnimationFrame(step);
 }
 
-function exportLogsToCSV() {
-    const rows = [['Horário', 'Colaborador', 'Função', 'Tipo', 'Detalhes']];
-    document.querySelectorAll('#logs-table-body tr:not([id])').forEach(row => {
-        const cells = row.querySelectorAll('td');
-        if(cells.length > 0) {
-            rows.push([
-                cells[0].innerText,
-                cells[1].innerText.split('\n')[0],
-                cells[1].innerText.split('\n')[1],
-                cells[2].innerText,
-                ''
-            ]);
-        }
-    });
-    
-    const csv = rows.map(r => r.join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `relatorio-fadiga-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-}
-
-function setupTeamListener() {
-    if(!teamGrid) return;
-    unsubscribeTeam = db.collection('users').onSnapshot(snapshot => {
-        teamGrid.innerHTML = ''; 
-
-        if (snapshot.empty) {
-            teamGrid.innerHTML = '<p style="color:var(--text-muted); width:100%; padding:20px;">Nenhum membro encontrado. Adicione alguém!</p>';
-            return;
-        }
-
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const displayName = data.displayName || (data.email ? data.email.split('@')[0] : 'Sem Nome');
-            const photo = data.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&background=333`;
-            const isOnline = true; 
-
-            const card = `
-                <div class="team-card">
-                    <img src="${photo}" class="team-avatar">
-                    <h3 style="margin:0; font-size: 1rem;">${displayName}</h3>
-                    <p style="color:var(--text-muted); margin:5px 0 15px 0; font-size: 0.85rem;">${data.role || 'Usuário'}</p>
-                    <div style="font-size:0.8rem;">
-                        <span class="status-dot ${isOnline ? 'status-online' : ''}" style="background:${isOnline ? 'var(--safe)' : '#555'}"></span>
-                        <span style="color: var(--text-muted);">${isOnline ? 'Cadastrado' : 'Offline'}</span>
-                    </div>
-                    ${data.email ? `<small style="display:block; margin-top:10px; font-size:0.7rem; color:var(--text-muted); opacity: 0.7;">${data.email}</small>` : ''}
-                </div>
-            `;
-            teamGrid.innerHTML += card;
-        });
-    }, error => {
-        console.error("Erro ao carregar equipe:", error);
-        teamGrid.innerHTML = '<div style="color: var(--danger);">Erro ao carregar dados.</div>';
-    });
-}
-
+// --- CONVITES (Mantido igual) ---
 if(btnAddMember) {
     btnAddMember.style.display = 'flex'; 
     btnAddMember.addEventListener('click', () => {
@@ -497,52 +432,62 @@ if(btnAddMember) {
         }
     });
 }
-
-if(closeMemberModal) {
-    closeMemberModal.addEventListener('click', () => {
-        if(addMemberModal) {
-            addMemberModal.style.opacity = '0';
-            setTimeout(() => addMemberModal.classList.add('hidden'), 300);
-        }
+[closeMemberModal, closeInviteResult].forEach(btn => {
+    if(btn) btn.addEventListener('click', () => {
+        if(addMemberModal) { addMemberModal.style.opacity = '0'; setTimeout(() => addMemberModal.classList.add('hidden'), 300); }
+        if(inviteResultModal) { inviteResultModal.style.opacity = '0'; setTimeout(() => inviteResultModal.classList.add('hidden'), 300); }
     });
-}
+});
 
-if(formAddMember) {
-    formAddMember.addEventListener('submit', async (e) => {
+if(formCreateInvite) {
+    formCreateInvite.addEventListener('submit', async (e) => {
         e.preventDefault();
-        
-        const name = document.getElementById('new-user-name').value;
-        const email = document.getElementById('new-user-email').value;
-        const role = document.getElementById('new-user-role').value;
-        const submitBtn = formAddMember.querySelector('button[type="submit"]');
-
-        if(!name || !email) return alert("Preencha todos os campos!");
+        const role = document.getElementById('invite-role').value;
+        const uses = parseInt(document.getElementById('invite-uses').value);
+        const days = parseInt(document.getElementById('invite-days').value);
+        const submitBtn = formCreateInvite.querySelector('button[type="submit"]');
 
         try {
             submitBtn.disabled = true;
-            submitBtn.innerText = "Salvando...";
+            submitBtn.innerText = "Gerando...";
+            const token = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + days);
 
-            await db.collection('users').add({
-                displayName: name,
-                email: email,
+            await db.collection('invites').doc(token).set({
+                token: token,
                 role: role,
+                maxUses: uses,
+                usesLeft: uses,
+                expiresAt: expiresAt,
+                createdBy: auth.currentUser.uid,
                 createdAt: new Date(),
-                photoURL: null, 
                 active: true
             });
 
-            alert(`✅ ${name} pré-cadastrado com sucesso!`);
-            
-            formAddMember.reset();
+            const baseUrl = window.location.href.replace('admin.html', 'index.html');
+            const finalLink = `${baseUrl.split('?')[0]}?convite=${token}`;
+            const msgTemplate = `💼 *Convite Oficial - SunDrowsy*\n\nVocê foi convidado a integrar a plataforma *SunDrowsy* como *${role}*.\n\n📅 Expira em *${days} dia(s)*\n🔢 Válido para *${uses} uso(s)*\n\n*Clique no link abaixo para criar sua conta:*\n${finalLink}\n\n🛡️ *SunDrowsy* — Eficiência e segurança contra a fadiga.`;
+
+            resultLinkInput.value = finalLink;
+            resultMsgDiv.innerText = msgTemplate;
+
             addMemberModal.style.opacity = '0';
             setTimeout(() => addMemberModal.classList.add('hidden'), 300);
+            inviteResultModal.classList.remove('hidden');
+            setTimeout(() => inviteResultModal.style.opacity = '1', 300);
 
+            btnCopyLink.onclick = () => { navigator.clipboard.writeText(finalLink); alert('Link copiado!'); };
+            btnCopyMsg.onclick = () => { navigator.clipboard.writeText(msgTemplate); alert('Mensagem copiada!'); };
+            btnShareWpp.onclick = () => { window.open(`https://wa.me/?text=${encodeURIComponent(msgTemplate)}`, '_blank'); };
+
+            formCreateInvite.reset();
         } catch (error) {
-            console.error("Erro ao adicionar:", error);
-            alert("Erro ao salvar: " + error.message);
+            console.error("Erro ao gerar convite:", error);
+            alert("Erro: " + error.message);
         } finally {
             submitBtn.disabled = false;
-            submitBtn.innerText = "Salvar Cadastro";
+            submitBtn.innerText = "Gerar Link de Convite";
         }
     });
 }

@@ -468,7 +468,6 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .bg-danger { background: rgba(255, 69, 58, 0.2); color: var(--danger); }
 .bg-safe { background: rgba(50, 215, 75, 0.2); color: var(--safe); }
 .bg-warn { background: rgba(255, 208, 40, 0.2); color: var(--primary); }
-.date-filter { background: var(--glass-surface); border: 1px solid var(--glass-border); color: #fff; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
 .admin-view { display: none; animation: fadeIn 0.4s ease; width: 100%; }
 .admin-view.active { display: block; }
 .team-grid { display: flex !important; flex-wrap: wrap; gap: 15px !important; }
@@ -489,3 +488,56 @@ input:checked + .slider:before { transform: translateX(24px); }
 .form-input { width: 100%; background: rgba(255,255,255,0.05); border: 1px solid var(--glass-border); padding: 10px; border-radius: 8px; color: #fff; font-family: inherit; }
 .form-input:focus { border-color: var(--primary); }
 .dashboard-container > * { margin-bottom: 30px !important; }
+
+/* --- Selects do Admin --- */
+
+/* 1. Estiliza a caixa fechada (Input) */
+.date-filter, 
+#user-filter, 
+#period-filter {
+    appearance: none;          /* Remove seta padrão feia do Windows/Mac */
+    -webkit-appearance: none;  /* Safari/Chrome */
+    -moz-appearance: none;     /* Firefox */
+    
+    background-color: rgba(20, 20, 25, 0.6); /* Fundo escuro translúcido */
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-main);
+    
+    padding: 8px 16px;
+    padding-right: 35px; /* Espaço para a seta customizada */
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.9rem;
+    outline: none;
+    transition: all 0.3s ease;
+
+    /* Seta Customizada (Branca) */
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22white%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    background-size: 16px;
+}
+
+.date-filter:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.date-filter:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(255, 208, 40, 0.2);
+}
+
+/* 2. O PULO DO GATO: Estiliza a lista aberta (Options) */
+select option {
+    background-color: #1a1a1e; /* Fundo sólido escuro (obrigatório para options) */
+    color: #fff;
+    padding: 12px;
+}
+
+/* Removemos a seta padrão do IE se necessário */
+select::-ms-expand {
+    display: none;
+}
