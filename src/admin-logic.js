@@ -29,6 +29,14 @@ const btnCopyLink = document.getElementById('btn-copy-link');
 const btnCopyMsg = document.getElementById('btn-copy-msg');
 const btnShareWpp = document.getElementById('btn-share-wpp');
 
+// Perfil
+const adminFormProfile = document.getElementById('admin-form-profile');
+const adminProfileName = document.getElementById('admin-profile-name');
+const adminProfilePhoto = document.getElementById('admin-profile-photo');
+const adminProfileEmail = document.getElementById('admin-profile-email');
+const adminProfileRole = document.getElementById('admin-profile-role');
+const adminProfilePreview = document.getElementById('admin-profile-preview');
+
 // ESTADO GLOBAL
 let charts = {}; 
 let unsubscribeLogs = null;
@@ -52,11 +60,36 @@ auth.onAuthStateChanged(async (user) => {
         }
 
         console.log(`🔓 Admin logado: ${role}`);
-        const adminPhoto = document.getElementById('admin-photo');
-        if(adminPhoto) adminPhoto.src = user.photoURL;
         
+        // --- CONFIGURAÇÃO DA FOTO DE PERFIL (CLIQUE) ---
+        const adminPhoto = document.getElementById('admin-photo');
+        if(adminPhoto) {
+            adminPhoto.src = user.photoURL;
+            adminPhoto.style.cursor = 'pointer';
+            adminPhoto.title = "Editar Meu Perfil";
+            
+            // Adiciona o evento de clique
+            adminPhoto.onclick = () => {
+                // 1. Remove classe active da sidebar
+                navBtns.forEach(b => b.classList.remove('active'));
+                
+                // 2. Ativa o botão da sidebar correspondente
+                const profileBtn = document.querySelector('.nav-btn[data-view="profile"]');
+                if(profileBtn) profileBtn.classList.add('active');
+
+                // 3. Troca a visualização para Perfil
+                views.forEach(v => v.classList.remove('active'));
+                const viewProfile = document.getElementById('view-profile');
+                if(viewProfile) {
+                    viewProfile.classList.add('active');
+                    loadAdminProfile(); // Carrega os dados
+                }
+            };
+        }
+        // ------------------------------------------------
+
         setupRealtimeDashboard('today');
-        setupTeamListener(); // Agora também popula o select de filtro
+        setupTeamListener(); 
 
     } catch (error) {
         console.error("Erro de permissão:", error);
@@ -70,11 +103,100 @@ navBtns.forEach(btn => {
         navBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const viewId = btn.getAttribute('data-view');
+        
+        // Se clicar em Perfil, carrega os dados
+        if(viewId === 'profile') {
+            loadAdminProfile();
+        }
         views.forEach(v => v.classList.remove('active'));
         const view = document.getElementById(`view-${viewId}`);
         if(view) view.classList.add('active');
     });
 });
+
+// --- LÓGICA DE PERFIL (ADMIN) ---
+
+function loadAdminProfile() {
+    const user = auth.currentUser;
+    if(!user) return;
+
+    adminProfileName.value = user.displayName || '';
+    adminProfilePhoto.value = user.photoURL || '';
+    adminProfileEmail.value = user.email || '';
+    adminProfilePreview.src = user.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff';
+    
+    // Busca a Role no Firestore pra mostrar
+    db.collection('users').doc(user.uid).get().then(doc => {
+        if(doc.exists) {
+            adminProfileRole.value = doc.data().role || 'ADMIN';
+        }
+    });
+}
+
+// Preview da Imagem Admin
+if(adminProfilePhoto) {
+    adminProfilePhoto.addEventListener('input', (e) => {
+        const url = e.target.value;
+        if(url && url.length > 10) adminProfilePreview.src = url;
+    });
+}
+
+// Salvar Perfil Admin
+if(adminFormProfile) {
+    adminFormProfile.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = adminFormProfile.querySelector('button');
+        const originalText = btn.innerText;
+
+        try {
+            btn.disabled = true;
+            btn.innerText = "Salvando...";
+            
+            const newName = adminProfileName.value;
+            const newPhoto = adminProfilePhoto.value;
+
+            // 1. Auth Profile
+            await auth.currentUser.updateProfile({ displayName: newName, photoURL: newPhoto });
+
+            // 2. Firestore
+            await db.collection('users').doc(auth.currentUser.uid).update({ displayName: newName, photoURL: newPhoto });
+
+            // 3. Atualiza header do admin
+            const adminHeaderPhoto = document.getElementById('admin-photo');
+            if (adminHeaderPhoto) {
+                adminHeaderPhoto.style.cursor = 'pointer'; // Indica que é clicável
+                adminHeaderPhoto.title = "Ir para Meu Perfil"; // Tooltip
+
+                adminHeaderPhoto.addEventListener('click', () => {
+                    // 1. Remove classe active de todos os botões da sidebar
+                    navBtns.forEach(b => b.classList.remove('active'));
+                    
+                    // 2. Adiciona active no botão de perfil
+                    const profileBtn = document.querySelector('.nav-btn[data-view="profile"]');
+                    if(profileBtn) profileBtn.classList.add('active');
+
+                    // 3. Troca a View
+                    views.forEach(v => v.classList.remove('active'));
+                    const profileView = document.getElementById('view-profile');
+                    if(profileView) {
+                        profileView.classList.add('active');
+                        loadAdminProfile(); // Carrega os dados
+                    }
+                });
+            }
+            if(adminHeaderPhoto) adminHeaderPhoto.src = newPhoto;
+
+            alert("Perfil de Administrador atualizado!");
+            
+        } catch (error) {
+            console.error(error);
+            alert("Erro: " + error.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    });
+}
 
 // --- LISTENERS DOS FILTROS ---
 if(periodFilter) {

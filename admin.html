@@ -6,7 +6,7 @@
     <title>SunDrowsy | Analytics</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2">
+    <link rel="stylesheet" href="style.css?v=4">
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -22,6 +22,7 @@
             
             <button class="nav-btn active" data-view="dashboard"><span class="material-icons-round">analytics</span> Visão Geral</button>
             <button class="nav-btn" data-view="team"><span class="material-icons-round">people</span> Equipe</button>
+            <button class="nav-btn" data-view="profile"><span class="material-icons-round">badge</span> Meu Perfil</button>
             <button class="nav-btn" data-view="settings"><span class="material-icons-round">settings</span> Configurações</button>
             
             <div style="flex: 1;"></div>
@@ -37,10 +38,10 @@
                 <header class="header-dash">
                     <div>
                         <h1 style="margin: 0; font-size: 1.8rem;">Monitoramento de Segurança</h1>
-                        <small style="color: var(--text-muted);">Visão em tempo real da equipe e operações</small><br><br>
+                        <small style="color: var(--text-muted);">Visão em tempo real da equipe e operações</small>
                     </div>
+
                     <div style="display: flex; gap: 12px; align-items: center;">
-                        
                         <span style="color: var(--text-muted); font-size: 0.9rem;">Filtrar:</span>
                         <select id="user-filter" class="date-filter" style="width: 180px;">
                             <option value="ALL">Todos os Usuários</option>
@@ -53,8 +54,8 @@
                             <option value="month">Este Mês</option>
                         </select>
                         
-                        <div class="user-badge" style="margin: 0; background: transparent;">
-                            <img id="admin-photo" src="" style="width: 32px; height: 32px; border-radius: 50%;">
+                        <div class="user-badge" style="margin: 0; background: transparent; padding: 0; border: none;">
+                            <img id="admin-photo" src="" style="width: 40px; height: 40px; border-radius: 50%; cursor: pointer; border: 2px solid var(--glass-border);" title="Ir para Meu Perfil">
                         </div>
                     </div>
                 </header>
@@ -64,40 +65,25 @@
                         <span class="material-icons-round kpi-bg-icon">warning_amber</span>
                         <span class="kpi-label">Incidentes Críticos</span>
                         <span class="kpi-value" id="kpi-alerts">0</span>
-                        <div class="kpi-trend">
-                            <span class="material-icons-round" style="font-size: 16px;">trending_up</span>
-                            <span id="kpi-alerts-trend">+2 hoje</span>
-                        </div>
+                        <div class="kpi-trend"><span class="material-icons-round" style="font-size: 16px;">trending_up</span><span id="kpi-alerts-trend">--</span></div>
                     </div>
-
                     <div class="kpi-card warning">
                         <span class="material-icons-round kpi-bg-icon">visibility</span>
                         <span class="kpi-label">Microssonos</span>
                         <span class="kpi-value" id="kpi-microsleeps">0</span>
-                        <div class="kpi-trend">
-                            <span class="material-icons-round" style="font-size: 16px;">remove</span>
-                            <span>Estável</span>
-                        </div>
+                        <div class="kpi-trend"><span class="material-icons-round" style="font-size: 16px;">remove</span><span>Estável</span></div>
                     </div>
-
                     <div class="kpi-card safe">
                         <span class="material-icons-round kpi-bg-icon">shield</span>
                         <span class="kpi-label">Equipe Ativa</span>
                         <span class="kpi-value" id="kpi-active-users">--</span>
-                        <div class="kpi-trend">
-                            <span class="material-icons-round" style="font-size: 16px;">person</span>
-                            <span id="kpi-active-text">Monitorando</span>
-                        </div>
+                        <div class="kpi-trend"><span class="material-icons-round" style="font-size: 16px;">person</span><span id="kpi-active-text">Monitorando</span></div>
                     </div>
-
                     <div class="kpi-card info">
                         <span class="material-icons-round kpi-bg-icon">restaurant_menu</span>
                         <span class="kpi-label">Pausas de Almoço</span>
                         <span class="kpi-value" id="kpi-lunches">0</span>
-                        <div class="kpi-trend">
-                            <span class="material-icons-round" style="font-size: 16px;">schedule</span>
-                            <span>Hoje</span>
-                        </div>
+                        <div class="kpi-trend"><span class="material-icons-round" style="font-size: 16px;">schedule</span><span>Hoje</span></div>
                     </div>
                 </div>
 
@@ -115,16 +101,11 @@
                 <div class="logs-table-container">
                     <div class="chart-header">
                         <span class="chart-title">Registros Recentes da Equipe</span>
-                        <button class="btn-secondary" style="padding: 4px 12px; font-size: 0.8rem;">Exportar CSV</button>
+                        <button class="btn-secondary" style="padding: 4px 12px; font-size: 0.8rem;" onclick="exportLogsToCSV()">Exportar CSV</button>
                     </div>
                     <table>
                         <thead>
-                            <tr>
-                                <th style="width: 120px;">HORÁRIO</th>
-                                <th>COLABORADOR</th>
-                                <th>OCORRÊNCIA</th>
-                                <th style="text-align: right;">AÇÃO</th>
-                            </tr>
+                            <tr><th style="width: 120px;">HORÁRIO</th><th>COLABORADOR</th><th>OCORRÊNCIA</th><th style="text-align: right;">AÇÃO</th></tr>
                         </thead>
                         <tbody id="logs-table-body">
                             <tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">Carregando dados...</td></tr>
@@ -138,32 +119,57 @@
                     <h1>Gestão de Equipe</h1>
                     <button id="btn-add-member" class="btn-primary" style="padding: 10px 20px; font-size: 0.9rem;">+ Adicionar Membro</button>
                 </header>
-                <div class="team-grid" id="team-grid-container">
+                <div class="team-grid" id="team-grid-container"></div>
+            </section>
+
+            <section id="view-profile" class="admin-view">
+                <header class="header-dash"><h1>Meu Perfil</h1></header>
+                
+                <div class="logs-table-container"> 
+                    <div class="profile-container">
+                        <div class="avatar-wrapper">
+                            <img id="admin-profile-preview" src="" class="profile-avatar-large">
+                            <div class="avatar-edit-icon"><span class="material-icons-round" style="font-size: 16px;">edit</span></div>
+                        </div>
+
+                        <form id="admin-form-profile" class="profile-form">
+                            <div class="form-group">
+                                <label><span class="material-icons-round" style="font-size: 16px;">badge</span> Nome Completo</label>
+                                <input type="text" id="admin-profile-name" class="glass-input" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label><span class="material-icons-round" style="font-size: 16px;">image</span> URL da Foto</label>
+                                <input type="url" id="admin-profile-photo" class="glass-input" placeholder="https://...">
+                            </div>
+
+                            <div class="form-group">
+                                <label><span class="material-icons-round" style="font-size: 16px;">email</span> Email (Fixo)</label>
+                                <input type="text" id="admin-profile-email" class="glass-input readonly-field" readonly>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label><span class="material-icons-round" style="font-size: 16px;">security</span> Função</label>
+                                <input type="text" id="admin-profile-role" class="glass-input readonly-field" readonly>
+                            </div>
+
+                            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 15px;">
+                                Salvar Alterações
+                            </button>
+                        </form>
                     </div>
+                </div>
             </section>
 
             <section id="view-settings" class="admin-view">
                 <header class="header-dash"><h1>Configurações Globais</h1></header>
                 <div class="logs-table-container settings-section">
                     <div class="setting-item">
-                        <div>
-                            <h3 style="margin: 0 0 5px 0;">Modo Estrito</h3>
-                            <small style="color: var(--text-muted);">Reduz tolerância para piscadas em 20%</small>
-                        </div>
+                        <div><h3 style="margin: 0 0 5px 0;">Modo Estrito</h3><small style="color: var(--text-muted);">Reduz tolerância para piscadas em 20%</small></div>
                         <label class="toggle-switch"><input type="checkbox"><span class="slider"></span></label>
                     </div>
                     <div class="setting-item">
-                        <div>
-                            <h3 style="margin: 0 0 5px 0;">Alertas Sonoros Globais</h3>
-                            <small style="color: var(--text-muted);">Força som em todos os dispositivos da equipe</small>
-                        </div>
-                        <label class="toggle-switch"><input type="checkbox" checked><span class="slider"></span></label>
-                    </div>
-                    <div class="setting-item">
-                        <div>
-                            <h3 style="margin: 0 0 5px 0;">Notificação de Admin</h3>
-                            <small style="color: var(--text-muted);">Receber email/SMS em incidentes críticos</small>
-                        </div>
+                        <div><h3 style="margin: 0 0 5px 0;">Alertas Sonoros Globais</h3><small style="color: var(--text-muted);">Força som em todos os dispositivos da equipe</small></div>
                         <label class="toggle-switch"><input type="checkbox" checked><span class="slider"></span></label>
                     </div>
                 </div>
@@ -175,38 +181,19 @@
     <div id="add-member-modal" class="modal hidden">
         <div class="modal-content glass-panel" style="padding: 30px; width: 450px;">
             <span class="close-btn" id="close-add-member" style="position: absolute; right: 20px; top: 20px; cursor: pointer;">&times;</span>
-            
-            <h2 style="color: var(--primary); margin-top: 0; display:flex; align-items:center; gap:10px;">
-                <span class="material-icons-round">link</span> Gerar Novo Convite
-            </h2>
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 25px;">
-                Crie um link seguro para novos membros se cadastrarem.
-            </p>
-            
+            <h2 style="color: var(--primary); margin-top: 0; display:flex; align-items:center; gap:10px;"><span class="material-icons-round">link</span> Gerar Novo Convite</h2>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 25px;">Crie um link seguro para novos membros se cadastrarem.</p>
             <form id="form-create-invite">
-                <div class="form-group">
-                    <label>Função do Usuário</label>
+                <div class="form-group"><label>Função</label>
                     <select id="invite-role" class="glass-input" style="width: 100%;">
                         <option value="VIGIA">Vigia</option>
-                        <option value="MOTORISTA">Motorista</option>
-                        <option value="ADMIN">Admin</option>
-                    </select>
-                </div>
-                
+                        <option value="ADMIN">Admin</option></select>
+                    </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
-                    <div class="form-group">
-                        <label>Número de Usos</label>
-                        <input type="number" id="invite-uses" class="form-input" value="1" min="1" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Expira em (dias)</label>
-                        <input type="number" id="invite-days" class="form-input" value="1" min="1" required>
-                    </div>
+                    <div class="form-group"><label>Usos</label><input type="number" id="invite-uses" class="form-input" value="1" min="1" required></div>
+                    <div class="form-group"><label>Dias</label><input type="number" id="invite-days" class="form-input" value="1" min="1" required></div>
                 </div>
-
-                <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 15px;">
-                    Gerar Link de Convite
-                </button>
+                <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 15px;">Gerar Link de Convite</button>
             </form>
         </div>
     </div>
@@ -214,25 +201,12 @@
     <div id="invite-result-modal" class="modal hidden">
         <div class="modal-content glass-panel" style="padding: 30px; width: 500px; text-align: left;">
             <span class="close-btn" id="close-invite-result" style="position: absolute; right: 20px; top: 20px; cursor: pointer;">&times;</span>
-            
-            <div style="text-align: center; margin-bottom: 20px;">
-                <span class="material-icons-round" style="font-size: 3rem; color: var(--safe);">check_circle</span>
-                <h2 style="margin: 10px 0;">Convite Gerado</h2>
-            </div>
-
+            <div style="text-align: center; margin-bottom: 20px;"><span class="material-icons-round" style="font-size: 3rem; color: var(--safe);">check_circle</span><h2 style="margin: 10px 0;">Convite Gerado</h2></div>
             <label style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Link de Cadastro</label>
-            <div style="display: flex; gap: 10px; margin-bottom: 25px;">
-                <input type="text" id="result-link" class="form-input" readonly style="color: var(--primary);">
-                <button class="btn-secondary" id="btn-copy-link" title="Copiar Link"><span class="material-icons-round">content_copy</span></button>
-            </div>
-
+            <div style="display: flex; gap: 10px; margin-bottom: 25px;"><input type="text" id="result-link" class="form-input" readonly style="color: var(--primary);"><button class="btn-secondary" id="btn-copy-link"><span class="material-icons-round">content_copy</span></button></div>
             <label style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Mensagem Pronta (WhatsApp)</label>
             <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; font-size: 0.85rem; color: #ddd; white-space: pre-wrap; margin-bottom: 15px; border: 1px solid var(--glass-border);" id="result-message"></div>
-            
-            <div style="display: flex; gap: 10px;">
-                <button class="btn-primary" id="btn-copy-msg" style="flex: 1; justify-content: center;">Copiar Mensagem</button>
-                <button class="btn-secondary" id="btn-share-wpp" style="flex: 1; justify-content: center; background: #25D366; color: white; border: none;">WhatsApp Web</button>
-            </div>
+            <div style="display: flex; gap: 10px;"><button class="btn-primary" id="btn-copy-msg" style="flex: 1; justify-content: center;">Copiar Mensagem</button><button class="btn-secondary" id="btn-share-wpp" style="flex: 1; justify-content: center; background: #25D366; color: white; border: none;">WhatsApp Web</button></div>
         </div>
     </div>
 

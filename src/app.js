@@ -32,6 +32,16 @@ let faceMesh = null;
 let tickerWorker = null; 
 let isProcessingFrame = false; 
 
+// PERFIL ELEMENTS
+const btnOpenProfile = document.getElementById('btn-open-profile');
+const profileModal = document.getElementById('profile-modal');
+const closeProfile = document.getElementById('close-profile');
+const formProfile = document.getElementById('form-profile-update');
+const profileNameInput = document.getElementById('profile-name-input');
+const profilePhotoInput = document.getElementById('profile-photo-input');
+const profileEmailReadonly = document.getElementById('profile-email-readonly');
+const profilePreviewImg = document.getElementById('profile-preview-img');
+
 // Verifica se existe token na URL ao carregar
 const urlParams = new URLSearchParams(window.location.search);
 const inviteToken = urlParams.get('convite');
@@ -561,3 +571,89 @@ window.resetLunch = function() {
     if (lunchModal) toggleModal(lunchModal, false);
     console.log("✅ Reset concluído.");
 };
+
+// --- LÓGICA DE PERFIL (CLIENTE) ---
+
+// 1. Abrir Modal
+if(btnOpenProfile) {
+    btnOpenProfile.addEventListener('click', () => {
+        const user = auth.currentUser;
+        if(!user) return;
+
+        // Popula campos
+        profileNameInput.value = user.displayName || '';
+        profilePhotoInput.value = user.photoURL || '';
+        profileEmailReadonly.value = user.email || '';
+        profilePreviewImg.src = user.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff';
+
+        toggleModal(profileModal, true);
+    });
+}
+
+// 2. Preview em Tempo Real da Imagem
+if(profilePhotoInput) {
+    profilePhotoInput.addEventListener('input', (e) => {
+        const url = e.target.value;
+        if(url && url.length > 10) {
+            profilePreviewImg.src = url;
+        } else {
+            // Fallback se limpar
+            if(auth.currentUser) profilePreviewImg.src = auth.currentUser.photoURL;
+        }
+    });
+    // Fallback se imagem quebrar
+    profilePreviewImg.addEventListener('error', () => {
+        profilePreviewImg.src = 'https://ui-avatars.com/api/?background=333&color=fff&name=ERROR';
+    });
+}
+
+// 3. Salvar Perfil
+if(formProfile) {
+    formProfile.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = formProfile.querySelector('button');
+        const originalText = btn.innerText;
+        
+        try {
+            btn.disabled = true;
+            btn.innerText = "Salvando...";
+            
+            const newName = profileNameInput.value;
+            const newPhoto = profilePhotoInput.value;
+
+            // 1. Atualiza no Auth (Google Identity local)
+            await auth.currentUser.updateProfile({
+                displayName: newName,
+                photoURL: newPhoto
+            });
+
+            // 2. Atualiza no Firestore (Banco de Dados)
+            await db.collection('users').doc(auth.currentUser.uid).update({
+                displayName: newName,
+                photoURL: newPhoto
+            });
+
+            // 3. Atualiza UI imediatamente
+            document.getElementById('user-name').innerText = newName;
+            document.getElementById('user-photo').src = newPhoto;
+
+            alert("Perfil atualizado com sucesso!");
+            toggleModal(profileModal, false);
+
+        } catch (error) {
+            console.error("Erro ao atualizar perfil:", error);
+            alert("Erro: " + error.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    });
+}
+
+// Fechar modal
+if(closeProfile) {
+    closeProfile.addEventListener('click', () => toggleModal(profileModal, false));
+    window.addEventListener('click', (e) => {
+        if (e.target === profileModal) toggleModal(profileModal, false);
+    });
+}

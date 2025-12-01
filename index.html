@@ -34,7 +34,7 @@
         <nav class="sidebar">
             <div class="brand-title" style="font-size: 1.5rem; text-align: left; margin-bottom: 2rem;">Sun<span>Drowsy</span></div>
 
-            <div class="user-badge">
+            <div class="user-badge" id="btn-open-profile" title="Editar Perfil">
                 <img id="user-photo" src="" alt="User">
                 <div class="user-info">
                     <h4 id="user-name">Usuário</h4>
@@ -50,7 +50,6 @@
             <div class="profile-selector">
                 <small style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 6px; display: block;">Modo de Operação:</small>
                 <select id="role-selector" class="glass-input" style="width: 100%;">
-                    <option value="MOTORISTA">Motorista</option>
                     <option value="VIGIA">Vigia / Segurança</option>
                 </select>
             </div>
@@ -105,19 +104,50 @@
         </main>
     </section>
 
+    <div id="profile-modal" class="modal hidden">
+        <div class="modal-content glass-panel" style="padding: 0;">
+            <div style="padding: 20px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: #fff;">Editar Perfil</h3>
+                <span class="close-btn" id="close-profile" style="cursor: pointer; color: #fff;">&times;</span>
+            </div>
+            
+            <div class="profile-container">
+                <div class="avatar-wrapper">
+                    <img id="profile-preview-img" src="" class="profile-avatar-large">
+                    <div class="avatar-edit-icon"><span class="material-icons-round" style="font-size: 16px;">edit</span></div>
+                </div>
+
+                <form id="form-profile-update" class="profile-form">
+                    <div class="form-group">
+                        <label><span class="material-icons-round" style="font-size: 16px;">badge</span> Nome Completo</label>
+                        <input type="text" id="profile-name-input" class="glass-input" style="width: 100%;" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label><span class="material-icons-round" style="font-size: 16px;">image</span> URL da Foto</label>
+                        <input type="url" id="profile-photo-input" class="glass-input" style="width: 100%;" placeholder="https://...">
+                    </div>
+
+                    <div class="form-group">
+                        <label><span class="material-icons-round" style="font-size: 16px;">email</span> Email (Fixo)</label>
+                        <input type="text" id="profile-email-readonly" class="glass-input readonly-field" style="width: 100%;" readonly>
+                    </div>
+                    
+                    <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 10px;">
+                        Salvar Alterações
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div id="calibration-modal" class="modal hidden">
         <div class="modal-content calib-box">
             <span class="close-btn" id="close-calib" style="position: absolute; right: 20px; top: 20px; cursor: pointer; color: #fff;">&times;</span>
             <h2 style="color: var(--primary);">Calibração Biométrica</h2>
             <p id="calib-instruction" style="color: var(--text-muted);">Por favor, olhe para a câmera.</p>
-            
-            <div class="progress-container">
-                <div id="calib-progress" class="progress-fill"></div>
-            </div>
-            
-            <button id="btn-start-calib" class="btn-primary">
-                <span class="material-icons-round">play_circle</span> Iniciar Scan
-            </button>
+            <div class="progress-container"><div id="calib-progress" class="progress-fill"></div></div>
+            <button id="btn-start-calib" class="btn-primary"><span class="material-icons-round">play_circle</span> Iniciar Scan</button>
         </div>
     </div>
 
