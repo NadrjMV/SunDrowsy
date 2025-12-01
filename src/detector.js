@@ -3,7 +3,7 @@ import { db, auth } from './firebase-config.js';
 // --- CONFIGURAÇÕES DE FÁBRICA ---
 const FACTORY_CONFIG = {
     CRITICAL_TIME_MS: 10000,        // 10s (Sono Profundo)
-    MICROSLEEP_TIME_MS: 3500,       // 3.5s (Microssono)
+    MICROSLEEP_TIME_MS: 4500,       // 4.5s (Microssono)
     HEAD_DOWN_TIME_MS: 4000,        // 4s (Cabeça baixa)
     LONG_BLINK_TIME_MS: 700,        // 0.7s (Piscada Longa)
 
@@ -67,14 +67,7 @@ export class DrowsinessDetector {
 
     // *** ATUALIZADO: Recebe calibração de cabeça ***
     setCalibration(earClosed, earOpen, marOpen, headRatioNormal) {
-        const calibratedEAR = earClosed + (earOpen - earClosed) * 0.35;
-        let calibratedMAR = marOpen * 0.60;
-        if (calibratedMAR < 0.35) calibratedMAR = 0.35; 
-
-        // CALIBRAÇÃO CABEÇA:
-        // Pega o ratio normal (ex: 1.4) e define o limite como 80% disso.
-        // Se cair abaixo de 80% do tamanho normal, considera cabeça baixa.
-        const calibratedHeadRatio = headRatioNormal * 0.80;
+        const calibratedHeadRatio = headRatioNormal * 0.85;
 
         this.config.EAR_THRESHOLD = calibratedEAR;
         this.config.MAR_THRESHOLD = calibratedMAR;
@@ -82,10 +75,10 @@ export class DrowsinessDetector {
         
         this.state.isCalibrated = true;
         
-        // Força atualização da UI
-        this.state.lastUiBlink = -1; 
-        this.updateUICounters();
-        this.updateUI("Calibração concluída. Monitorando...");
+        // Log para debug (abra o console F12 para ver isso ao calibrar)
+        console.log(`📏 CALIBRAÇÃO: Normal=${headRatioNormal.toFixed(3)} | Threshold=${calibratedHeadRatio.toFixed(3)}`);
+        
+        this.updateUI("Calibração Concluída. Monitorando...");
         
         console.log(`✅ Calibrado! EAR: ${calibratedEAR.toFixed(3)} | MAR: ${calibratedMAR.toFixed(3)} | HEAD: ${calibratedHeadRatio.toFixed(3)}`);
 
@@ -101,14 +94,16 @@ export class DrowsinessDetector {
         }
     }
 
-    processHeadTilt(tiltData) {
+    processHeadTilt(currentRatio) {
         if (!this.state.monitoring || !this.state.isCalibrated) return;
 
-        // Usa o ratio atual comparado com o threshold calibrado
-        const currentRatio = tiltData.ratio;
+        // Se o ratio atual for MENOR que o limite, a cabeça está baixa
         const isHeadDown = currentRatio < this.config.HEAD_RATIO_THRESHOLD;
+        
+        // Debug visual no console (opcional, ajuda muito a calibrar)
+        // console.log(`Head: ${currentRatio.toFixed(2)} (Limit: ${this.config.HEAD_RATIO_THRESHOLD.toFixed(2)}) -> ${isHeadDown ? 'BAIXA' : 'OK'}`);
 
-        this.state.isHeadDown = isHeadDown; 
+        this.state.isHeadDown = isHeadDown;
 
         if (isHeadDown) {
             if (this.state.headDownSince === null) {
@@ -117,14 +112,18 @@ export class DrowsinessDetector {
 
             const duration = Date.now() - this.state.headDownSince;
 
-            // Dispara APENAS se ainda não logou este evento específico
             if (duration >= this.config.HEAD_DOWN_TIME_MS && !this.state.hasLoggedHeadDown) {
-                this.triggerAlarm(`PERIGO: CABEÇA BAIXA (${(duration/1000).toFixed(1)}s)`);
-                this.state.hasLoggedHeadDown = true; 
+                this.triggerAlarm(`PERIGO: CABEÇA BAIXA`);
+                this.state.hasLoggedHeadDown = true;
             }
         } else {
             this.state.headDownSince = null;
-            this.state.hasLoggedHeadDown = false; // Reseta trava
+            this.state.hasLoggedHeadDown = false;
+            
+            // Se levantou a cabeça e não tem outros alarmes, para o som
+            if (this.state.isAlarmActive && this.state.longBlinksCount === 0 && this.state.yawnCount === 0) {
+                this.stopAlarm();
+            }
         }
     }
 

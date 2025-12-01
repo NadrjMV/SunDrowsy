@@ -245,7 +245,11 @@ body {
     position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); display: flex; justify-content: center; align-items: center; z-index: 200; transition: opacity 0.3s;
 }
 .modal-content {
-    position: relative; width: 500px; max-width: 90%; padding: 0; overflow: hidden; background: #111; border: 1px solid var(--glass-border); border-radius: 20px;
+    /* Garante que o fundo glass e a borda tenham o arredondamento */
+    border-radius: 24px !important; 
+    overflow: hidden; /* Garante que o conteúdo interno não vaze nos cantos */
+    border: 1px solid var(--glass-border); /* Reforça a borda sutil */
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); /* Sombra para profundidade */
 }
 
 /* Inputs Genéricos */
@@ -404,3 +408,198 @@ select option { background-color: #1a1a1e; color: #fff; padding: 12px; }
 @keyframes alertPulse { 0% { box-shadow: inset 0 0 0px var(--danger); } 50% { box-shadow: inset 0 0 100px var(--danger); } }
 @keyframes pulseText { 0% { opacity: 1; } 100% { opacity: 0.6; } }
 @keyframes lunchPulse { 0% { box-shadow: 0 0 0 0 rgba(255, 149, 0, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(255, 149, 0, 0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+
+/* --- ESTILOS DO WIZARD (Guia Rápido) --- */
+.wizard-container {
+    padding: 40px 30px; /* Ajuste de padding */
+    text-align: center;
+    position: relative;
+    height: 450px; 
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between; /* Espalha o conteúdo verticalmente */
+}
+
+/* Oculta passos inativos e anima a entrada */
+.wizard-step {
+    display: none;
+    animation: fadeIn 0.4s ease; /* Animação ligeiramente mais rápida */
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start; /* Alinha ao topo */
+    flex: 1; /* Ocupa o espaço disponível acima dos dots */
+}
+.wizard-step.active {
+    display: flex;
+}
+
+/* MUDANÇA CRÍTICA: Fixar a altura do parágrafo de texto */
+.wizard-step p {
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1.5;
+    max-width: 320px;
+    margin: 0 auto;
+    /* Define uma altura fixa capaz de conter o maior texto (aprox 3 linhas) */
+    height: 75px; 
+    /* Centraliza o texto verticalmente nesse espaço fixo */
+    display: flex;
+    align-items: center; 
+    justify-content: center;
+}
+
+/* Ajuste os controles para ficarem sempre no fundo */
+.wizard-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+    margin-top: auto; /* Empurra para o final do container */
+    padding-top: 20px;
+}
+
+.wizard-image {
+    width: 80px;
+    height: 80px;
+    background: var(--primary-dim);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 20px auto;
+    box-shadow: 0 0 30px var(--primary-dim);
+}
+.wizard-image span {
+    font-size: 40px;
+    color: var(--primary);
+}
+
+.wizard-step h2 {
+    font-size: 1.8rem;
+    margin-bottom: 10px;
+    background: linear-gradient(180deg, #fff 0%, #aaa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.wizard-step p {
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1.6;
+    max-width: 300px;
+    margin: 0 auto;
+}
+
+/* Dots de navegação */
+.wizard-dots {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin: 30px 0;
+}
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+    transition: all 0.3s ease;
+}
+.dot.active {
+    background: var(--primary);
+    width: 24px;
+    border-radius: 10px;
+    box-shadow: 0 0 10px var(--primary-dim);
+}
+
+.wizard-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: auto; /* Empurra para o fundo */
+}
+
+/* --- LUNCH MODE (TRAVAMENTO DE TELA) --- */
+
+/* Quando a classe .lunch-mode é ativada no #app-view */
+#app-view.lunch-mode {
+    position: relative;
+}
+
+/* Desfoca sidebar e conteúdo */
+#app-view.lunch-mode .sidebar,
+#app-view.lunch-mode .content {
+    filter: blur(15px) grayscale(80%);
+    pointer-events: none; /* Impede cliques em tudo */
+    transition: all 0.5s ease;
+    opacity: 0.4;
+}
+
+/* TRATAMENTO ESPECIAL PARA O BOTÃO FLUTUANTE */
+#app-view.lunch-mode #btn-fab-lunch {
+    position: fixed; /* Fixa na tela para sair do container relativo */
+    bottom: 50%;     /* Centraliza verticalmente */
+    right: 50%;      /* Centraliza horizontalmente */
+    transform: translate(50%, 50%) scale(1.5); /* Aumenta o tamanho */
+    z-index: 9999;   /* Garante que fique acima de tudo */
+    pointer-events: auto !important; /* Reativa os cliques */
+    filter: none !important; /* Remove filtros herdados */
+    opacity: 1 !important;
+    
+    /* Estilo do botão ativo */
+    background: var(--primary);
+    color: #000;
+    box-shadow: 0 0 50px var(--primary-glow);
+    animation: pulseLunch 2s infinite;
+}
+
+/* Altera o ícone/texto visualmente via CSS se quiser, ou mantém o JS */
+#app-view.lunch-mode #btn-fab-lunch::after {
+    content: 'RETOMAR';
+    position: absolute;
+    bottom: -25px;
+    font-size: 12px;
+    font-weight: 800;
+    color: #fff;
+    white-space: nowrap;
+}
+
+#calibration-modal .modal-content {
+    padding: 40px 30px 30px 30px; /* Mais padding no topo para o título */
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: rgba(15, 15, 20, 0.9) !important; /* Um pouco mais escuro para contraste */
+}
+
+/* Corrige o posicionamento do Título H2 */
+#calibration-modal h2 {
+    margin-top: 0; /* Remove a margem superior padrão que causava a sobreposição com o 'X' */
+    margin-bottom: 15px;
+    font-size: 1.8rem;
+}
+
+/* Ajuste do texto de instrução */
+#calibration-modal p#calib-instruction {
+    margin-bottom: 30px;
+    font-size: 1.1rem;
+    height: auto; /* Garante que não herde altura fixa de outros lugares */
+}
+
+/* Garante que o botão de fechar 'X' esteja no topo direito e visível */
+#calibration-modal .close-btn {
+    top: 25px !important;
+    right: 25px !important;
+    z-index: 10;
+    font-size: 1.5rem;
+    opacity: 0.7;
+    transition: opacity 0.3s;
+}
+#calibration-modal .close-btn:hover {
+    opacity: 1;
+}
+
+@keyframes pulseLunch {
+    0% { box-shadow: 0 0 0 0 rgba(255, 208, 40, 0.7); }
+    70% { box-shadow: 0 0 0 20px rgba(255, 208, 40, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}

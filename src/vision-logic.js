@@ -46,36 +46,28 @@ export function calculateMAR(landmarks) {
 
 // *** NOVA LÓGICA DE CABEÇA BAIXA ("T-ZONE") ***
 export function calculateHeadTilt(landmarks) {
-    // 1. Pega ponto central entre os olhos (média dos cantos)
-    const leftEye = landmarks[LANDMARKS.LEFT_EYE_OUTER];
-    const rightEye = landmarks[LANDMARKS.RIGHT_EYE_OUTER];
-    const eyeCenter = {
-        x: (leftEye.x + rightEye.x) / 2,
-        y: (leftEye.y + rightEye.y) / 2,
-        z: (leftEye.z + rightEye.z) / 2
-    };
-
-    // 2. Pega boca (lábio superior)
-    const mouthTop = landmarks[LANDMARKS.MOUTH_TOP];
-
-    // 3. Altura Vertical (Olhos até Boca)
-    // Quando a cabeça abaixa, o queixo entra pra dentro e essa distância encurta visualmente
-    const verticalDist = getDistance(eyeCenter, mouthTop);
-
-    // 4. Largura Horizontal (Olho a Olho)
-    // Essa distância se mantém constante
-    const horizontalDist = getDistance(leftEye, rightEye);
-
-    // 5. Ratio
-    if (horizontalDist === 0) return { ratio: 1.0, isHeadDown: false };
+    // T-Zone: Ponto central dos olhos
+    const leftEye = landmarks[33];  // Canto externo esquerdo
+    const rightEye = landmarks[263]; // Canto externo direito
     
-    // Normalização: Multiplica por 1.5 para ficar numa escala confortável (perto de 1.0)
-    const ratio = (verticalDist / horizontalDist) * 1.5;
+    // Média para achar o centro dos olhos
+    const eyeCenterX = (leftEye.x + rightEye.x) / 2;
+    const eyeCenterY = (leftEye.y + rightEye.y) / 2;
+    const eyeCenterZ = (leftEye.z + rightEye.z) / 2;
 
-    // Threshold de segurança: 0.70
-    // Se cair abaixo de 0.70, significa que a boca está "subindo" em direção aos olhos (cabeça baixou)
-    return {
-        ratio: ratio,
-        isHeadDown: ratio < 0.70 
-    };
+    // Boca (Lábio Superior)
+    const mouthTop = landmarks[13];
+
+    // Distância Vertical (Olhos até Boca)
+    // Usamos Math.hypot para vetor 3D ou 2D. Aqui 2D resolve bem e é mais estável para tilt.
+    const verticalDist = Math.hypot(mouthTop.x - eyeCenterX, mouthTop.y - eyeCenterY);
+
+    // Distância Horizontal (Largura do Rosto)
+    const horizontalDist = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
+
+    if (horizontalDist === 0) return 0;
+
+    // Ratio: Se a cabeça abaixa, a distância vertical diminui visualmente na câmera.
+    // Retorna o valor puro.
+    return verticalDist / horizontalDist;
 }

@@ -6,7 +6,8 @@ import { LANDMARKS, calculateEAR, calculateMAR, calculateHeadTilt } from './visi
 // --- VARIAVEIS GLOBAIS DE LEITURA INSTANTANEA ---
 let currentLeftEAR = 0;
 let currentRightEAR = 0;
-let currentMAR = 0; // Nova variável para guardar o valor da boca em tempo real
+let currentMAR = 0;
+let currentHeadRatio = 0;
 
 // --- ELEMENTOS DOM ---
 const loginView = document.getElementById('login-view');
@@ -332,12 +333,12 @@ function onResults(results) {
         // *** NOVO: Calcula inclinação da cabeça ***
         const headTiltData = calculateHeadTilt(landmarks);
 
+        currentHeadRatio = calculateHeadTilt(landmarks); // Pega o valor bruto
+
         if (detector) {
-            // Processa detecção de olhos e boca
             detector.processDetection(currentLeftEAR, currentRightEAR, currentMAR);
-            
-            // *** NOVO: Processa detecção de cabeça baixa ***
-            detector.processHeadTilt(headTiltData);
+            // Passa o valor bruto para o detector processar
+            detector.processHeadTilt(currentHeadRatio);
         }
     } else {
         if (detector && detector.state.isCalibrated) detector.updateUI("ROSTO NÃO DETECTADO");
@@ -385,14 +386,17 @@ btnStartCalib.addEventListener('click', async () => {
     let avgOpenEAR = 0;
     let avgClosedEAR = 0;
     let avgYawnMAR = 0;
+    let avgHeadRatio = 0;
 
-    // PASSO 1: OLHOS ABERTOS (Referência Neutra)
-    calibText.innerText = "Mantenha os olhos ABERTOS e boca FECHADA...";
+    // PASSO 1: OLHOS ABERTOS + POSTURA NEUTRA
+    calibText.innerText = "Mantenha os olhos ABERTOS e a CABEÇA RETA..."; // Atualize o texto
     calibProgress.style.width = "10%";
-    await new Promise(r => setTimeout(r, 1000)); // Estabilizar
+    await new Promise(r => setTimeout(r, 1000)); 
     
-    // Coleta rápida de amostras
+    // Coleta amostras
     avgOpenEAR = (currentLeftEAR + currentRightEAR) / 2;
+    avgHeadRatio = currentHeadRatio; // <--- CAPTURA A POSIÇÃO NATURAL DA CABEÇA
+    
     calibProgress.style.width = "30%";
     await new Promise(r => setTimeout(r, 2000));
 
@@ -409,6 +413,7 @@ btnStartCalib.addEventListener('click', async () => {
     avgYawnMAR = currentMAR; // Pega o valor máximo de abertura
 
     // FINALIZAÇÃO
+    if(detector) detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR, avgHeadRatio);
     calibText.innerText = "Calibração Concluída!";
     calibProgress.style.width = "100%";
     
