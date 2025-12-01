@@ -9,6 +9,8 @@ let currentRightEAR = 0;
 let currentMAR = 0;
 let currentHeadRatio = 0;
 
+let animationFrameId = null;
+
 // --- ELEMENTOS DOM ---
 const loginView = document.getElementById('login-view');
 const appView = document.getElementById('app-view');
@@ -269,7 +271,11 @@ async function initSystem() {
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
             videoElement.play();
-            startBackgroundLoop();
+            
+            // REMOVI o startBackgroundLoop();
+            startDetectionLoop(); 
+            
+            detector.updateUI("SISTEMA ATIVO"); // Feedback visual
         };
     } catch (err) {
         console.error("Erro Câmera:", err);
@@ -301,8 +307,23 @@ function startBackgroundLoop() {
 }
 
 function stopSystem() {
-    if (tickerWorker) { tickerWorker.postMessage('stop'); tickerWorker.terminate(); tickerWorker = null; }
-    if (videoElement.srcObject) { videoElement.srcObject.getTracks().forEach(track => track.stop()); }
+    // Cancela o loop visual
+    if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+    }
+    
+    // Para worker se ainda existir (limpeza de legado)
+    if (tickerWorker) { 
+        tickerWorker.terminate(); 
+        tickerWorker = null; 
+    }
+
+    // Pra câmera
+    if (videoElement.srcObject) {
+        videoElement.srcObject.getTracks().forEach(track => track.stop());
+        videoElement.srcObject = null;
+    }
 }
 
 // --- LOOP PROCESSAMENTO ---
@@ -467,6 +488,30 @@ function hasLunchToday() {
     const lastLunch = localStorage.getItem(LUNCH_KEY);
     const today = new Date().toDateString(); 
     return lastLunch === today;
+}
+
+async function startDetectionLoop() {
+    // Se o vídeo não estiver pronto ou pausado, tenta no próximo quadro
+    if (!videoElement.videoWidth || videoElement.paused || videoElement.ended) {
+        animationFrameId = requestAnimationFrame(startDetectionLoop);
+        return;
+    }
+
+    // Se já estiver processando (ex: durante o alarme pesado),
+    // ele PULA este frame e não encavala a fila.
+    if (!isProcessingFrame) {
+        isProcessingFrame = true;
+        try {
+            await faceMesh.send({image: videoElement});
+        } catch (error) {
+            console.warn("Frame drop:", error);
+        } finally {
+            isProcessingFrame = false;
+        }
+    }
+
+    // Só pede o próximo quando o navegador tiver fôlego
+    animationFrameId = requestAnimationFrame(startDetectionLoop);
 }
 
 // Controla o Estado
