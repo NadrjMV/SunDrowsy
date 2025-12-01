@@ -58,141 +58,131 @@ document.getElementById('btn-logout').addEventListener('click', () => {
 // --- FLUXO DE AUTENTICAÇÃO  ---
 auth.onAuthStateChanged(async (user) => {
     if (user) {
-        // Usuário autenticado no Google. Verificando permissão de acesso no Firestore...
+        // Usuário logou no Google. Agora o sistema valida a entrada.
         
         try {
             const userRef = db.collection('users').doc(user.uid);
             const doc = await userRef.get();
             
-            let userRole = 'VIGIA'; // Valor padrão de segurança
+            let userRole = 'VIGIA'; 
             let userData = null;
 
-            // --- CENÁRIO A: USUÁRIO JÁ EXISTENTE ---
+            // --- CENÁRIO 1: USUÁRIO JÁ TEM CONTA ---
             if (doc.exists) {
                 userData = doc.data();
                 
-                // Trava de segurança
+                // 1. Verifica se foi banido/desativado
                 if (userData.active === false) {
-                    throw new Error("⛔ Sua conta foi desativada pelo administrador.");
+                    throw new Error("⛔ CONTA DESATIVADA: Contacte o administrador.");
                 }
 
-                userRole = userData.role;
-                console.log(`✅ Usuário reconhecido: ${userRole}. Acesso liberado.`);
-
-                // >>> ADICIONE ESTE BLOCO AQUI PARA CORRIGIR OS NOMES <<<
-                // Força atualização dos dados do Google para o Banco de Dados
+                // 2. CORREÇÃO DE NOMES (Isso resolve o problema do Admin)
+                // Atualiza o perfil no banco com os dados mais recentes do Google
                 await userRef.set({
                     displayName: user.displayName,
                     email: user.email,
                     photoURL: user.photoURL,
                     lastLogin: new Date()
-                }, { merge: true }); // 'merge: true' é vital para não apagar a calibração
-            }
+                }, { merge: true }); // 'merge: true' mantem a calibração salva
+
+                userRole = userData.role;
+                console.log(`✅ Acesso Permitido: ${userRole}`);
+            } 
             
-            // --- CENÁRIO B: NOVO USUÁRIO (NECESSITA CONVITE) ---
+            // --- CENÁRIO 2: NOVO USUÁRIO (O BLOQUEIO ACONTECE AQUI) ---
             else {
-                console.log("👤 Novo usuário detectado. Buscando credencial de convite...");
+                console.log("👤 Novo visitante. Verificando convite...");
                 
-                // Tenta recuperar token da URL ou do SessionStorage (caso o redirect do Google tenha limpado a URL)
+                // Busca token na URL ou na Memória (caso o redirect tenha limpado a URL)
                 const tokenToUse = inviteToken || sessionStorage.getItem('sd_invite_token');
 
+                // >>> AQUI ESTÁ A BARREIRA <<<
                 if (!tokenToUse) {
-                    throw new Error("⛔ CADASTRO BLOQUEADO: É necessário um link de convite válido para criar conta.");
+                    throw new Error("⛔ CADASTRO BLOQUEADO: Você precisa de um Link de Convite oficial para entrar.");
                 }
 
-                // Valida o convite no banco de dados
+                // Valida se o convite existe no banco
                 const inviteRef = db.collection('invites').doc(tokenToUse);
                 const inviteDoc = await inviteRef.get();
 
                 if (!inviteDoc.exists) {
-                    throw new Error("⛔ O código do convite é inválido ou não existe.");
+                    throw new Error("⛔ Convite inválido ou inexistente.");
                 }
 
                 const inviteData = inviteDoc.data();
                 const now = new Date();
-                const expiresAt = inviteData.expiresAt.toDate(); // Converte Timestamp do Firestore para Date JS
+                const expiresAt = inviteData.expiresAt.toDate(); 
 
-                // Checagens rigorosas do convite
-                if (!inviteData.active) throw new Error("⛔ Este convite foi revogado pelo administrador.");
-                if (inviteData.usesLeft <= 0) throw new Error("⛔ O limite de usos deste convite foi atingido.");
+                // Valida as regras do convite (Ativo? Tem usos? Venceu?)
+                if (!inviteData.active) throw new Error("⛔ Este convite foi cancelado.");
+                if (inviteData.usesLeft <= 0) throw new Error("⛔ Este convite já atingiu o limite de usos.");
                 if (expiresAt < now) throw new Error("⛔ Este convite expirou.");
 
-                // --- TUDO VÁLIDO: CRIA A CONTA ---
-                console.log(`🎉 Convite Válido! Criando conta como ${inviteData.role}...`);
+                // --- TUDO CERTO: CRIA A CONTA ---
+                console.log(`🎉 Convite aceito! Criando conta de ${inviteData.role}...`);
                 userRole = inviteData.role;
 
-                // 1. Cria o documento do usuário
+                // Salva o novo usuário
                 const newUserPayload = {
-                    displayName: user.displayName || 'Usuário Sem Nome',
+                    displayName: user.displayName,
                     email: user.email,
                     photoURL: user.photoURL,
                     role: userRole,
                     createdAt: now,
                     active: true,
                     invitedBy: inviteData.createdBy,
-                    inviteUsed: tokenToUse
+                    inviteUsed: tokenToUse,
+                    lastLogin: now
                 };
                 
                 await userRef.set(newUserPayload);
-                userData = newUserPayload; // Atualiza variável local para uso imediato
+                userData = newUserPayload;
 
-                // 2. Decrementa o uso do convite (Atomicamente)
+                // Queima um uso do convite
                 await inviteRef.update({
                     usesLeft: firebase.firestore.FieldValue.increment(-1)
                 });
                 
-                // Limpa o token usado da sessão para evitar reuso acidental
-                sessionStorage.removeItem('sd_invite_token');
+                sessionStorage.removeItem('sd_invite_token'); // Limpa para não reusar
             }
 
-            // --- LÓGICA DE UI PÓS-LOGIN (HAPPY PATH) ---
-            
-            // 1. Troca de telas
+            // --- UI PÓS-LOGIN (Só chega aqui se passou por tudo acima) ---
             loginView.classList.remove('active');
             loginView.classList.add('hidden');
             appView.classList.remove('hidden');
             setTimeout(() => appView.classList.add('active'), 100);
 
-            // 2. Preenche dados do HUD
             document.getElementById('user-name').innerText = user.displayName;
             document.getElementById('user-photo').src = user.photoURL;
             
-            // 3. Atualiza seletores e displays de função
+            // Sincroniza selects e textos
             const roleSel = document.getElementById('role-selector');
             const roleDisp = document.getElementById('user-role-display');
             if (roleSel) roleSel.value = userRole;
             if (roleDisp) roleDisp.innerText = userRole;
 
-            // 4. Inicializa o Sistema
-            initSystem(); // Liga câmera e loop
+            // Inicia Câmera e IA
+            initSystem(); 
             if (detector) detector.setRole(userRole);
 
-            // 5. Carrega ou Solicita Calibração
-            // Verifica se o usuário já tem calibração salva no banco
+            // Verifica Calibração
             if (userData && userData.calibration && detector) {
-                console.log("☁️ [FIREBASE] Carregando calibração salva...");
+                console.log("☁️ Calibração carregada.");
                 const calib = userData.calibration;
-                
-                // Aplica valores salvos
                 if (calib.EAR_THRESHOLD) detector.config.EAR_THRESHOLD = calib.EAR_THRESHOLD;
                 if (calib.MAR_THRESHOLD) detector.config.MAR_THRESHOLD = calib.MAR_THRESHOLD;
                 if (calib.HEAD_RATIO_THRESHOLD) detector.config.HEAD_RATIO_THRESHOLD = calib.HEAD_RATIO_THRESHOLD;
-                
                 detector.state.isCalibrated = true;
-                detector.updateUI("Calibração carregada. Monitorando...");
             } else {
-                console.log("⚠️ [FIREBASE] Sem calibração salva. Solicitando ao usuário...");
                 toggleModal(calibModal, true);
             }
 
         } catch (error) {
-            console.error("❌ ERRO CRÍTICO DE ACESSO:", error);
-            alert(error.message); // Feedback visual para o usuário
+            // --- O BLOQUEIO FINAL ---
+            console.error("❌ ACESSO NEGADO:", error.message);
+            alert(error.message); // Mostra o motivo pro usuário
+            auth.signOut(); // CHUTA O USUÁRIO PARA FORA
             
-            // Desloga imediatamente para impedir acesso não autorizado
-            auth.signOut(); 
-            
-            // Reseta UI para tela de login
             appView.classList.remove('active');
             appView.classList.add('hidden');
             loginView.classList.remove('hidden');
@@ -201,8 +191,7 @@ auth.onAuthStateChanged(async (user) => {
         }
         
     } else {
-        // --- USUÁRIO DESLOGADO ---
-        console.log("🔒 Usuário desconectado.");
+        // Estado deslogado padrão
         appView.classList.remove('active');
         appView.classList.add('hidden');
         loginView.classList.remove('hidden');
