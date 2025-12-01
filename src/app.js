@@ -71,14 +71,23 @@ auth.onAuthStateChanged(async (user) => {
             if (doc.exists) {
                 userData = doc.data();
                 
-                // Trava de segurança: Usuário desativado
+                // Trava de segurança
                 if (userData.active === false) {
                     throw new Error("⛔ Sua conta foi desativada pelo administrador.");
                 }
 
                 userRole = userData.role;
                 console.log(`✅ Usuário reconhecido: ${userRole}. Acesso liberado.`);
-            } 
+
+                // >>> ADICIONE ESTE BLOCO AQUI PARA CORRIGIR OS NOMES <<<
+                // Força atualização dos dados do Google para o Banco de Dados
+                await userRef.set({
+                    displayName: user.displayName,
+                    email: user.email,
+                    photoURL: user.photoURL,
+                    lastLogin: new Date()
+                }, { merge: true }); // 'merge: true' é vital para não apagar a calibração
+            }
             
             // --- CENÁRIO B: NOVO USUÁRIO (NECESSITA CONVITE) ---
             else {
