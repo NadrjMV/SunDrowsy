@@ -32,6 +32,16 @@ let faceMesh = null;
 let tickerWorker = null; 
 let isProcessingFrame = false; 
 
+// Verifica se existe token na URL ao carregar
+const urlParams = new URLSearchParams(window.location.search);
+const inviteToken = urlParams.get('convite');
+
+if (inviteToken) {
+    console.log("🎟️ Token de convite detectado:", inviteToken);
+    // Opcional: Salvar em sessionStorage caso o login do Google limpe a URL
+    sessionStorage.setItem('sd_invite_token', inviteToken);
+}
+
 // --- AUTH ---
 document.getElementById('btn-google-login').addEventListener('click', () => {
     auth.signInWithPopup(googleProvider).catch((error) => {
@@ -45,63 +55,145 @@ document.getElementById('btn-logout').addEventListener('click', () => {
     auth.signOut();
 });
 
+// --- FLUXO DE AUTENTICAÇÃO  ---
 auth.onAuthStateChanged(async (user) => {
     if (user) {
-        loginView.classList.remove('active');
-        loginView.classList.add('hidden');
-        appView.classList.remove('hidden');
-        setTimeout(() => appView.classList.add('active'), 100);
-
-        document.getElementById('user-name').innerText = user.displayName;
-        document.getElementById('user-photo').src = user.photoURL;
-        
-        initSystem();
+        // Usuário autenticado no Google. Verificando permissão de acesso no Firestore...
         
         try {
-            console.log("☁️ [FIREBASE] Buscando perfil do usuário...");
-            const doc = await db.collection('users').doc(user.uid).get();
-            let userRole = 'MOTORISTA'; 
-
-            if(doc.exists) {
-                // Role
-                if(doc.data().role) {
-                    userRole = doc.data().role;
-                    console.log(`   └─ Perfil encontrado: ${userRole}`);
-                }
-                
-                // Calibração
-                const savedData = doc.data().calibration;
-                if(savedData && detector) {
-                    // Carrega APENAS EAR/MAR para não sobrescrever o tempo crítico
-                    if (savedData.EAR_THRESHOLD) detector.config.EAR_THRESHOLD = savedData.EAR_THRESHOLD;
-                    if (savedData.MAR_THRESHOLD) detector.config.MAR_THRESHOLD = savedData.MAR_THRESHOLD;
-                    detector.state.isCalibrated = true;
-                    
-                    // --- LOG DE SUCESSO DE CARREGAMENTO ---
-                    console.log("☁️ [FIREBASE] Calibração carregada com SUCESSO!");
-                    console.log(`   └─ EAR da Nuvem: ${savedData.EAR_THRESHOLD.toFixed(4)}`);
-                } else {
-                    console.log("⚠️ [FIREBASE] Nenhuma calibração salva encontrada.");
-                    toggleModal(calibModal, true);
-                }
-            } else {
-                console.log("⚠️ [FIREBASE] Usuário novo (sem documento).");
-                toggleModal(calibModal, true);
-            }
+            const userRef = db.collection('users').doc(user.uid);
+            const doc = await userRef.get();
             
-            // Sincroniza Role
-            if(detector) detector.setRole(userRole);
+            let userRole = 'VIGIA'; // Valor padrão de segurança
+            let userData = null;
+
+            // --- CENÁRIO A: USUÁRIO JÁ EXISTENTE ---
+            if (doc.exists) {
+                userData = doc.data();
+                
+                // Trava de segurança: Usuário desativado
+                if (userData.active === false) {
+                    throw new Error("⛔ Sua conta foi desativada pelo administrador.");
+                }
+
+                userRole = userData.role;
+                console.log(`✅ Usuário reconhecido: ${userRole}. Acesso liberado.`);
+            } 
+            
+            // --- CENÁRIO B: NOVO USUÁRIO (NECESSITA CONVITE) ---
+            else {
+                console.log("👤 Novo usuário detectado. Buscando credencial de convite...");
+                
+                // Tenta recuperar token da URL ou do SessionStorage (caso o redirect do Google tenha limpado a URL)
+                const tokenToUse = inviteToken || sessionStorage.getItem('sd_invite_token');
+
+                if (!tokenToUse) {
+                    throw new Error("⛔ CADASTRO BLOQUEADO: É necessário um link de convite válido para criar conta.");
+                }
+
+                // Valida o convite no banco de dados
+                const inviteRef = db.collection('invites').doc(tokenToUse);
+                const inviteDoc = await inviteRef.get();
+
+                if (!inviteDoc.exists) {
+                    throw new Error("⛔ O código do convite é inválido ou não existe.");
+                }
+
+                const inviteData = inviteDoc.data();
+                const now = new Date();
+                const expiresAt = inviteData.expiresAt.toDate(); // Converte Timestamp do Firestore para Date JS
+
+                // Checagens rigorosas do convite
+                if (!inviteData.active) throw new Error("⛔ Este convite foi revogado pelo administrador.");
+                if (inviteData.usesLeft <= 0) throw new Error("⛔ O limite de usos deste convite foi atingido.");
+                if (expiresAt < now) throw new Error("⛔ Este convite expirou.");
+
+                // --- TUDO VÁLIDO: CRIA A CONTA ---
+                console.log(`🎉 Convite Válido! Criando conta como ${inviteData.role}...`);
+                userRole = inviteData.role;
+
+                // 1. Cria o documento do usuário
+                const newUserPayload = {
+                    displayName: user.displayName || 'Usuário Sem Nome',
+                    email: user.email,
+                    photoURL: user.photoURL,
+                    role: userRole,
+                    createdAt: now,
+                    active: true,
+                    invitedBy: inviteData.createdBy,
+                    inviteUsed: tokenToUse
+                };
+                
+                await userRef.set(newUserPayload);
+                userData = newUserPayload; // Atualiza variável local para uso imediato
+
+                // 2. Decrementa o uso do convite (Atomicamente)
+                await inviteRef.update({
+                    usesLeft: firebase.firestore.FieldValue.increment(-1)
+                });
+                
+                // Limpa o token usado da sessão para evitar reuso acidental
+                sessionStorage.removeItem('sd_invite_token');
+            }
+
+            // --- LÓGICA DE UI PÓS-LOGIN (HAPPY PATH) ---
+            
+            // 1. Troca de telas
+            loginView.classList.remove('active');
+            loginView.classList.add('hidden');
+            appView.classList.remove('hidden');
+            setTimeout(() => appView.classList.add('active'), 100);
+
+            // 2. Preenche dados do HUD
+            document.getElementById('user-name').innerText = user.displayName;
+            document.getElementById('user-photo').src = user.photoURL;
+            
+            // 3. Atualiza seletores e displays de função
             const roleSel = document.getElementById('role-selector');
             const roleDisp = document.getElementById('user-role-display');
-            if(roleSel) roleSel.value = userRole;
-            if(roleDisp) roleDisp.innerText = userRole;
+            if (roleSel) roleSel.value = userRole;
+            if (roleDisp) roleDisp.innerText = userRole;
 
-        } catch (e) {
-            console.error("❌ [FIREBASE] Erro ao carregar dados:", e);
-            toggleModal(calibModal, true);
+            // 4. Inicializa o Sistema
+            initSystem(); // Liga câmera e loop
+            if (detector) detector.setRole(userRole);
+
+            // 5. Carrega ou Solicita Calibração
+            // Verifica se o usuário já tem calibração salva no banco
+            if (userData && userData.calibration && detector) {
+                console.log("☁️ [FIREBASE] Carregando calibração salva...");
+                const calib = userData.calibration;
+                
+                // Aplica valores salvos
+                if (calib.EAR_THRESHOLD) detector.config.EAR_THRESHOLD = calib.EAR_THRESHOLD;
+                if (calib.MAR_THRESHOLD) detector.config.MAR_THRESHOLD = calib.MAR_THRESHOLD;
+                if (calib.HEAD_RATIO_THRESHOLD) detector.config.HEAD_RATIO_THRESHOLD = calib.HEAD_RATIO_THRESHOLD;
+                
+                detector.state.isCalibrated = true;
+                detector.updateUI("Calibração carregada. Monitorando...");
+            } else {
+                console.log("⚠️ [FIREBASE] Sem calibração salva. Solicitando ao usuário...");
+                toggleModal(calibModal, true);
+            }
+
+        } catch (error) {
+            console.error("❌ ERRO CRÍTICO DE ACESSO:", error);
+            alert(error.message); // Feedback visual para o usuário
+            
+            // Desloga imediatamente para impedir acesso não autorizado
+            auth.signOut(); 
+            
+            // Reseta UI para tela de login
+            appView.classList.remove('active');
+            appView.classList.add('hidden');
+            loginView.classList.remove('hidden');
+            setTimeout(() => loginView.classList.add('active'), 100);
+            stopSystem();
         }
         
     } else {
+        // --- USUÁRIO DESLOGADO ---
+        console.log("🔒 Usuário desconectado.");
         appView.classList.remove('active');
         appView.classList.add('hidden');
         loginView.classList.remove('hidden');

@@ -607,6 +607,6 @@ input:checked + .slider:before { transform: translateX(24px); }
 
 
 #btn-add-member {
-    display: none !important; /* escondi o botão de Add membro */
+/*    display: none !important; /* esconder o botão de Add membro */
 }
 

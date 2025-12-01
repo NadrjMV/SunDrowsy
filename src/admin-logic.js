@@ -17,6 +17,18 @@ const addMemberModal = document.getElementById('add-member-modal');
 const closeMemberModal = document.getElementById('close-add-member');
 const formAddMember = document.getElementById('form-add-member');
 
+// NOVOS SELETORES
+const inviteResultModal = document.getElementById('invite-result-modal');
+const closeInviteResult = document.getElementById('close-invite-result');
+const formCreateInvite = document.getElementById('form-create-invite');
+
+// Elementos do Modal de Resultado
+const resultLinkInput = document.getElementById('result-link');
+const resultMsgDiv = document.getElementById('result-message');
+const btnCopyLink = document.getElementById('btn-copy-link');
+const btnCopyMsg = document.getElementById('btn-copy-msg');
+const btnShareWpp = document.getElementById('btn-share-wpp');
+
 let charts = {}; 
 let unsubscribeLogs = null;
 let unsubscribeTeam = null;
@@ -125,6 +137,122 @@ function processLogs(logs) {
     renderCharts(logs);
     const sleepLogs = logs.filter(l => l.type === 'ALARM');
     renderGroupedTable(sleepLogs);
+}
+
+// --- LÓGICA DE GERAR CONVITE (NOVA) ---
+
+// 1. Abrir Modal de Configuração
+if(btnAddMember) {
+    btnAddMember.style.display = 'flex'; // Garante que o botão apareça
+    btnAddMember.addEventListener('click', () => {
+        if(addMemberModal) {
+            addMemberModal.classList.remove('hidden');
+            setTimeout(() => addMemberModal.style.opacity = '1', 10);
+        }
+    });
+}
+
+// 2. Fechar Modais
+[closeMemberModal, closeInviteResult].forEach(btn => {
+    if(btn) btn.addEventListener('click', () => {
+        if(addMemberModal) { addMemberModal.style.opacity = '0'; setTimeout(() => addMemberModal.classList.add('hidden'), 300); }
+        if(inviteResultModal) { inviteResultModal.style.opacity = '0'; setTimeout(() => inviteResultModal.classList.add('hidden'), 300); }
+    });
+});
+
+// 3. Processar Formulário e Gerar Link
+if(formCreateInvite) {
+    formCreateInvite.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const role = document.getElementById('invite-role').value;
+        const uses = parseInt(document.getElementById('invite-uses').value);
+        const days = parseInt(document.getElementById('invite-days').value);
+        const submitBtn = formCreateInvite.querySelector('button[type="submit"]');
+
+        try {
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Gerando...";
+
+            // Gera Token Único
+            const token = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+            
+            // Calcula Expiração
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + days);
+
+            // Salva no Firestore
+            await db.collection('invites').doc(token).set({
+                token: token,
+                role: role,
+                maxUses: uses,
+                usesLeft: uses,
+                expiresAt: expiresAt,
+                createdBy: auth.currentUser.uid,
+                createdAt: new Date(),
+                active: true
+            });
+
+            // Prepara Dados para Exibição
+            const baseUrl = window.location.href.replace('admin.html', 'index.html'); // Ajusta para root
+            const finalLink = `${baseUrl.split('?')[0]}?convite=${token}`;
+            
+            const msgTemplate = `💼 *Convite Oficial - SunDrowsy*
+
+Você foi convidado a integrar a plataforma *SunDrowsy* como *${role}*.
+
+📅 Expira em *${days} dia(s)*
+🔢 Válido para *${uses} uso(s)*
+
+*Clique no link abaixo para criar sua conta:*
+${finalLink}
+
+🛡️ *SunDrowsy* — Eficiência e segurança contra a fadiga.`;
+
+            // Popula Modal de Resultado
+            resultLinkInput.value = finalLink;
+            resultMsgDiv.innerText = msgTemplate;
+
+            // Fecha form e abre resultado
+            addMemberModal.style.opacity = '0';
+            setTimeout(() => addMemberModal.classList.add('hidden'), 300);
+            
+            inviteResultModal.classList.remove('hidden');
+            setTimeout(() => inviteResultModal.style.opacity = '1', 300);
+
+            // Configura Botões de Ação
+            setupCopyActions(finalLink, msgTemplate);
+
+            formCreateInvite.reset();
+
+        } catch (error) {
+            console.error("Erro ao gerar convite:", error);
+            alert("Erro: " + error.message);
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = "Gerar Link de Convite";
+        }
+    });
+}
+
+function setupCopyActions(link, msg) {
+    // Copiar Link
+    btnCopyLink.onclick = () => {
+        navigator.clipboard.writeText(link);
+        alert('Link copiado!');
+    };
+
+    // Copiar Mensagem
+    btnCopyMsg.onclick = () => {
+        navigator.clipboard.writeText(msg);
+        alert('Mensagem copiada para a área de transferência!');
+    };
+
+    // WhatsApp Web
+    btnShareWpp.onclick = () => {
+        const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+        window.open(url, '_blank');
+    };
 }
 
 function renderGroupedTable(logs) {
