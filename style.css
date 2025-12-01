@@ -432,20 +432,119 @@ hr { border: none; border-top: 1px solid var(--glass-border); margin: 1rem 0; }
     gap: 30px;
 }
 .header-dash { display: flex; justify-content: space-between; align-items: center; }
-.kpi-grid { display: flex !important; justify-content: space-between; gap: 40px !important; width: 100%; margin-bottom: 30px !important; }
+.kpi-grid {
+    display: grid !important; /* Grid é melhor que flex aqui para alinhamento */
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 24px !important;
+    margin-bottom: 25px !important;
+}
+
 .kpi-card {
-    background: var(--card-bg);
-    border: 1px solid var(--glass-border);
-    border-radius: 16px;
+    background: linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(20,20,20,0.4) 100%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 20px; /* Mais arredondado */
     padding: 24px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
     position: relative;
     overflow: hidden;
-    backdrop-filter: blur(10px);
-    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 160px;
+    transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
 }
+.kpi-card:hover {
+    transform: translateY(-5px);
+    border-color: rgba(255,255,255,0.15);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.4);
+}
+
+/* Tipografia */
+.kpi-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 600;
+    z-index: 2;
+}
+
+.kpi-value {
+    font-size: 3rem;
+    font-weight: 800;
+    color: #fff;
+    margin: 10px 0;
+    line-height: 1;
+    z-index: 2;
+    text-shadow: 0 5px 15px rgba(0,0,0,0.5);
+}
+
+/* Badge de Tendência (Pílula) */
+.kpi-trend {
+    align-self: flex-start;
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 20px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 2;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-muted);
+}
+
+/* Ícone de Fundo Gigante (Decorativo) */
+.kpi-bg-icon {
+    position: absolute;
+    right: -20px;
+    bottom: -20px;
+    font-size: 8rem; /* Ícone gigante */
+    opacity: 0.05; /* Muito sutil */
+    transform: rotate(-15deg);
+    z-index: 0;
+    pointer-events: none;
+    transition: all 0.5s ease;
+}
+
+.kpi-card:hover .kpi-bg-icon {
+    opacity: 0.1;
+    transform: rotate(0deg) scale(1.1);
+}
+/* --- VARIAÇÕES DE COR (Classes modificadoras) --- */
+
+/* PERIGO (Vermelho) */
+.kpi-card.danger {
+    border-bottom: 2px solid var(--danger);
+    background: linear-gradient(180deg, rgba(255, 69, 58, 0.05) 0%, rgba(20,20,20,0.6) 100%);
+}
+.kpi-card.danger .kpi-value { color: var(--danger); text-shadow: 0 0 20px rgba(255, 69, 58, 0.3); }
+.kpi-card.danger .kpi-trend { background: rgba(255, 69, 58, 0.1); color: var(--danger); border-color: rgba(255, 69, 58, 0.2); }
+
+/* ALERTA (Amarelo/Ouro) */
+.kpi-card.warning {
+    border-bottom: 2px solid var(--primary);
+    background: linear-gradient(180deg, rgba(255, 208, 40, 0.05) 0%, rgba(20,20,20,0.6) 100%);
+}
+.kpi-card.warning .kpi-value { color: var(--primary); text-shadow: 0 0 20px rgba(255, 208, 40, 0.3); }
+.kpi-card.warning .kpi-trend { background: rgba(255, 208, 40, 0.1); color: var(--primary); border-color: rgba(255, 208, 40, 0.2); }
+
+/* SEGURO/ATIVO (Verde) */
+.kpi-card.safe {
+    border-bottom: 2px solid var(--safe);
+    background: linear-gradient(180deg, rgba(50, 215, 75, 0.05) 0%, rgba(20,20,20,0.6) 100%);
+}
+.kpi-card.safe .kpi-value { color: var(--safe); text-shadow: 0 0 20px rgba(50, 215, 75, 0.3); }
+.kpi-card.safe .kpi-trend { background: rgba(50, 215, 75, 0.1); color: var(--safe); border-color: rgba(50, 215, 75, 0.2); }
+
+/* NEUTRO/INFO (Laranja ou Azul) */
+.kpi-card.info {
+    border-bottom: 2px solid #FF9500;
+}
+.kpi-card.info .kpi-trend { background: rgba(255, 149, 0, 0.1); color: #FF9500; border-color: rgba(255, 149, 0, 0.2); }
 .kpi-card::before { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--primary); opacity: 0.5; }
 .kpi-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
 .kpi-value { font-size: 2rem; font-weight: 700; color: #fff; }

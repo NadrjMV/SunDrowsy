@@ -60,25 +60,44 @@
                 </header>
 
                 <div class="kpi-grid">
-                    <div class="kpi-card" style="border-left: 4px solid var(--danger);">
+                    <div class="kpi-card danger">
+                        <span class="material-icons-round kpi-bg-icon">warning_amber</span>
                         <span class="kpi-label">Incidentes Críticos</span>
                         <span class="kpi-value" id="kpi-alerts">0</span>
-                        <span class="kpi-trend negative"><span class="material-icons-round" style="font-size: 14px;">arrow_upward</span> +2 hoje</span>
+                        <div class="kpi-trend">
+                            <span class="material-icons-round" style="font-size: 16px;">trending_up</span>
+                            <span id="kpi-alerts-trend">+2 hoje</span>
+                        </div>
                     </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--primary);">
+
+                    <div class="kpi-card warning">
+                        <span class="material-icons-round kpi-bg-icon">visibility</span>
                         <span class="kpi-label">Microssonos</span>
                         <span class="kpi-value" id="kpi-microsleeps">0</span>
-                        <span class="kpi-trend"><span class="material-icons-round" style="font-size: 14px;">remove</span> Estável</span>
+                        <div class="kpi-trend">
+                            <span class="material-icons-round" style="font-size: 16px;">remove</span>
+                            <span>Estável</span>
+                        </div>
                     </div>
-                    <div class="kpi-card" style="border-left: 4px solid var(--safe);">
+
+                    <div class="kpi-card safe">
+                        <span class="material-icons-round kpi-bg-icon">shield</span>
                         <span class="kpi-label">Equipe Ativa</span>
                         <span class="kpi-value" id="kpi-active-users">--</span>
-                        <small style="color: var(--text-muted);">Monitorando agora</small>
+                        <div class="kpi-trend">
+                            <span class="material-icons-round" style="font-size: 16px;">person</span>
+                            <span id="kpi-active-text">Monitorando</span>
+                        </div>
                     </div>
-                    <div class="kpi-card" style="border-left: 4px solid #FF9500;">
+
+                    <div class="kpi-card info">
+                        <span class="material-icons-round kpi-bg-icon">restaurant_menu</span>
                         <span class="kpi-label">Pausas de Almoço</span>
                         <span class="kpi-value" id="kpi-lunches">0</span>
-                        <span class="kpi-trend"><span class="material-icons-round" style="font-size: 14px;">restaurant</span> Hoje</span>
+                        <div class="kpi-trend">
+                            <span class="material-icons-round" style="font-size: 16px;">schedule</span>
+                            <span>Hoje</span>
+                        </div>
                     </div>
                 </div>
 
