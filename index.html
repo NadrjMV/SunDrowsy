@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SunDrowsy | IA Safety</title>
+    <title>SunDrowsy | Tactical Safety</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
@@ -20,7 +20,7 @@
 <body>
 
     <section id="login-view" class="view active">
-        <div class="glass-panel login-card">
+        <div class="login-card">
             <h1 class="brand-title">Sun<span>Drowsy</span></h1>
             <p class="login-desc">Sistema Neural de Prevenção à Fadiga</p>
             <button id="btn-google-login" class="btn-primary">
@@ -31,79 +31,83 @@
 
     <section id="app-view" class="view hidden">
         
-        <nav class="sidebar glass-panel">
+        <nav class="sidebar">
             <div class="brand-title" style="font-size: 1.5rem; text-align: left; margin-bottom: 2rem;">Sun<span>Drowsy</span></div>
 
-            <div class="user-badge" style="gap: 12px; padding: 0;">
+            <div class="user-badge">
                 <img id="user-photo" src="" alt="User">
                 <div class="user-info">
                     <h4 id="user-name">Usuário</h4>
-                    <span id="user-role-display" style="font-size: 0.85rem; color: var(--primary);">Vigia</span>
+                    <span id="user-role-display">--</span>
                 </div>
             </div>
-            <hr>
             
-            <button class="nav-btn active"><span class="material-icons-round">dashboard</span> Monitor</button>
-
+            <button class="nav-btn active"><span class="material-icons-round">analytics</span> Monitoramento</button>
             <button class="nav-btn" id="btn-tutorial-open"><span class="material-icons-round">school</span> Guia Rápido</button>
             
             <div style="flex: 1;"></div>
             
-            <hr>
             <div class="profile-selector">
-                <small style="color: var(--text-muted); font-size: 0.75rem;">Função Atual:</small>
-                <select id="role-selector" class="glass-input">
+                <small style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 6px; display: block;">Modo de Operação:</small>
+                <select id="role-selector" class="glass-input" style="width: 100%;">
                     <option value="MOTORISTA">Motorista</option>
                     <option value="VIGIA">Vigia / Segurança</option>
                 </select>
             </div>
-            <hr>
             
+            <hr>
             <button class="nav-btn logout" id="btn-logout"><span class="material-icons-round">power_settings_new</span> Desconectar</button>
         </nav>
 
         <main class="content">
-            <div class="monitor-frame glass-panel">
-                <div class="video-wrapper">
-                    <video id="input_video" class="input_video" playsinline muted style="display:none"></video>
-                    <canvas id="output_canvas" class="output_canvas"></canvas>
-                    
-                    <div class="hud-top">
-                        <div class="hud-metric">
-                            <small>Nível de Fadiga</small>
+            <div class="video-wrapper">
+                <video id="input_video" class="input_video" playsinline muted style="display:none"></video>
+                <canvas id="output_canvas" class="output_canvas"></canvas>
+                
+                <div class="hud-top">
+                    <div class="hud-metric">
+                        <span class="material-icons-round" style="color: var(--text-muted); font-size: 1.2rem;">face</span>
+                        <div style="display:flex; flex-direction:column; line-height:1;">
+                            <small>Fadiga</small>
                             <span id="fatigue-level" class="value safe">ATIVO</span>
                         </div>
-                        <div class="hud-metric">
+                    </div>
+                    <div class="hud-metric">
+                        <span class="material-icons-round" style="color: var(--text-muted); font-size: 1.2rem;">visibility</span>
+                        <div style="display:flex; flex-direction:column; line-height:1;">
                             <small>Micro-Sonos</small>
-                            <span id="blink-counter">0</span>
-                        </div>
-                        <div class="hud-metric">
-                            <small>Status do Sistema</small>
-                            <span id="system-status" style="font-size: 0.9rem;">AGUARDANDO CÂMERA...</span>
+                            <span id="blink-counter" class="value">0</span>
                         </div>
                     </div>
-
-                    <div id="danger-alert" class="danger-overlay hidden">
-                        <span class="material-icons-round" style="font-size: 80px; color: white;">warning</span>
-                        <h1>PERIGO</h1>
-                        <p style="font-size: 1.5rem; letter-spacing: 2px;">FADIGA EXTREMA DETECTADA</p>
+                    <div class="hud-metric">
+                        <span class="material-icons-round" style="color: var(--text-muted); font-size: 1.2rem;">dns</span>
+                        <div style="display:flex; flex-direction:column; line-height:1;">
+                            <small>Status</small>
+                            <span id="system-status" style="font-size: 0.8rem; opacity: 0.9;">INIT...</span>
+                        </div>
                     </div>
                 </div>
+
+                <div id="danger-alert" class="danger-overlay hidden">
+                    <span class="material-icons-round" style="font-size: 100px; color: white; margin-bottom: 20px;">warning_amber</span>
+                    <h1>PERIGO</h1>
+                    <p>Fadiga Extrema Detectada</p>
+                </div>
+
+                <button id="btn-fab-lunch" class="fab-btn" title="Horário de Almoço">
+                    <span class="material-icons-round">restaurant</span>
+                </button>
+
+                <button id="btn-fab-calibrate" class="fab-btn" title="Recalibrar" style="bottom: 30px;">
+                    <span class="material-icons-round">my_location</span>
+                </button>
             </div>
         </main>
-
-        <button id="btn-fab-lunch" class="fab-btn" title="Horário de Almoço">
-            <span class="material-icons-round">restaurant</span>
-        </button>
-
-        <button id="btn-fab-calibrate" class="fab-btn" title="Recalibrar">
-            <span class="material-icons-round">settings_accessibility</span>
-        </button>
     </section>
 
     <div id="calibration-modal" class="modal hidden">
-        <div class="modal-content glass-panel calib-box">
-            <span class="close-btn" id="close-calib">&times;</span>
+        <div class="modal-content calib-box">
+            <span class="close-btn" id="close-calib" style="position: absolute; right: 20px; top: 20px; cursor: pointer; color: #fff;">&times;</span>
             <h2 style="color: var(--primary);">Calibração Biométrica</h2>
             <p id="calib-instruction" style="color: var(--text-muted);">Por favor, olhe para a câmera.</p>
             
@@ -118,8 +122,8 @@
     </div>
 
     <div id="tutorial-modal" class="modal hidden">
-        <div class="modal-content glass-panel">
-            <span class="close-btn" id="close-tutorial">&times;</span>
+        <div class="modal-content">
+            <span class="close-btn" id="close-tutorial" style="position: absolute; right: 20px; top: 20px; cursor: pointer; color: #fff;">&times;</span>
             <div class="wizard-container">
                 <div class="wizard-step active" data-step="1">
                     <div class="wizard-image"><span class="material-icons-round">face</span></div>
@@ -150,9 +154,9 @@
     </div>
 
     <div id="lunch-modal" class="modal hidden">
-        <div class="modal-content glass-panel" style="text-align: center; padding: 40px;">
+        <div class="modal-content" style="text-align: center; padding: 40px;">
             <span class="material-icons-round" style="font-size: 4rem; color: var(--primary);">restaurant</span>
-            <h2 style="margin: 1rem 0;">Iniciar Pausa?</h2>
+            <h2 style="margin: 1rem 0; color: #fff;">Iniciar Pausa?</h2>
             <p style="color: var(--text-muted); margin-bottom: 2rem; line-height: 1.6;">
                 Esta função pausa o monitoramento.<br>
                 <strong style="color: var(--danger);">Atenção:</strong> Válido <strong>1 vez por dia</strong>.
