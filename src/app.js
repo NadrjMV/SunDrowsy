@@ -1,7 +1,12 @@
 import { auth, googleProvider, db } from './firebase-config.js';
 import { AudioManager } from './audio-manager.js';
 import { DrowsinessDetector } from './detector.js'; 
-import { LANDMARKS, calculateEAR } from './vision-logic.js';
+import { LANDMARKS, calculateEAR, calculateMAR, calculateHeadTilt } from './vision-logic.js';
+
+// --- VARIAVEIS GLOBAIS DE LEITURA INSTANTANEA ---
+let currentLeftEAR = 0;
+let currentRightEAR = 0;
+let currentMAR = 0; // Nova variável para guardar o valor da boca em tempo real
 
 // --- ELEMENTOS DOM ---
 const loginView = document.getElementById('login-view');
@@ -216,14 +221,24 @@ function onResults(results) {
         const landmarks = results.multiFaceLandmarks[0];
 
         if (!document.hidden) {
-            // Visual leve
             drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1.5});
         }
         
-        const leftEAR = calculateEAR(landmarks, LANDMARKS.LEFT_EYE);
-        const rightEAR = calculateEAR(landmarks, LANDMARKS.RIGHT_EYE);
+        // Calcula EAR e MAR
+        currentLeftEAR = calculateEAR(landmarks, LANDMARKS.LEFT_EYE);
+        currentRightEAR = calculateEAR(landmarks, LANDMARKS.RIGHT_EYE);
+        currentMAR = calculateMAR(landmarks);
 
-        if (detector) detector.processDetection(leftEAR, rightEAR, 0);
+        // *** NOVO: Calcula inclinação da cabeça ***
+        const headTiltData = calculateHeadTilt(landmarks);
+
+        if (detector) {
+            // Processa detecção de olhos e boca
+            detector.processDetection(currentLeftEAR, currentRightEAR, currentMAR);
+            
+            // *** NOVO: Processa detecção de cabeça baixa ***
+            detector.processHeadTilt(headTiltData);
+        }
     } else {
         if (detector && detector.state.isCalibrated) detector.updateUI("ROSTO NÃO DETECTADO");
     }
@@ -266,16 +281,39 @@ btnStartCalib.addEventListener('click', async () => {
     audioMgr.audioContext.resume();
     btnStartCalib.disabled = true;
     
-    calibText.innerText = "Mantenha os olhos ABERTOS...";
+    // Variáveis locais para armazenar as médias
+    let avgOpenEAR = 0;
+    let avgClosedEAR = 0;
+    let avgYawnMAR = 0;
+
+    // PASSO 1: OLHOS ABERTOS (Referência Neutra)
+    calibText.innerText = "Mantenha os olhos ABERTOS e boca FECHADA...";
+    calibProgress.style.width = "10%";
+    await new Promise(r => setTimeout(r, 1000)); // Estabilizar
+    
+    // Coleta rápida de amostras
+    avgOpenEAR = (currentLeftEAR + currentRightEAR) / 2;
     calibProgress.style.width = "30%";
-    await new Promise(r => setTimeout(r, 3000));
+    await new Promise(r => setTimeout(r, 2000));
+
+    // PASSO 2: OLHOS FECHADOS
     calibText.innerText = "Agora FECHE os olhos...";
-    calibProgress.style.width = "60%";
-    await new Promise(r => setTimeout(r, 3000));
+    calibProgress.style.width = "50%";
+    await new Promise(r => setTimeout(r, 2500));
+    avgClosedEAR = (currentLeftEAR + currentRightEAR) / 2; // Pega o valor do momento (fechado)
+
+    // PASSO 3: BOCEJO (ABRIR BOCA)
+    calibText.innerText = "Agora ABRA A BOCA (Simule um bocejo)...";
+    calibProgress.style.width = "75%";
+    await new Promise(r => setTimeout(r, 2500));
+    avgYawnMAR = currentMAR; // Pega o valor máximo de abertura
+
+    // FINALIZAÇÃO
     calibText.innerText = "Calibração Concluída!";
     calibProgress.style.width = "100%";
     
-    if(detector) detector.setCalibration(0.15, 0.35, 0.50); 
+    // Envia tudo pro detector (Open EAR, Closed EAR, Open MAR)
+    if(detector) detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR); 
 
     setTimeout(() => {
         toggleModal(calibModal, false);

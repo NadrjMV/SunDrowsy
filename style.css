@@ -17,6 +17,9 @@
     --radius-lg: 24px;
     --radius-md: 16px;
     --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+
+    /* Variáveis Extras Admin */
+    --card-bg: rgba(20, 20, 25, 0.7);
 }
 
 * { box-sizing: border-box; outline: none; }
@@ -75,7 +78,7 @@ body {
 
 .login-desc { color: var(--text-muted); margin-bottom: 2rem; font-size: 0.95rem; }
 
-/* --- App Layout --- */
+/* --- App Layout (Sidebar & Nav) --- */
 .sidebar {
     width: 260px;
     margin: 20px;
@@ -124,28 +127,7 @@ body {
     border: 1px dashed var(--glass-border);
 }
 
-/* Destaca quando estiver Almoçando */
-.nav-btn.active span {
-    color: var(--primary);
-}
-
-/* Adicione no style.css para posicionar o botão de Almoço acima do de Calibração */
-#btn-fab-lunch {
-    bottom: 110px; /* Fica acima do botão de calibração (que está em 30px + 64px altura + margem) */
-    background: #fff;
-    color: #000;
-}
-#btn-fab-lunch.active {
-    background: #FF9500; /* Laranja para indicar ação/pausa */
-    animation: pulse 2s infinite;
-}
-#btn-fab-lunch:disabled {
-    background: #333;
-    color: #555;
-    box-shadow: none;
-    cursor: not-allowed;
-}
-
+.nav-btn.active span { color: var(--primary); }
 .nav-btn:hover { background: rgba(255,255,255,0.03); color: var(--text-main); }
 .nav-btn.active { background: rgba(255, 208, 40, 0.1); color: var(--primary); border: 1px solid rgba(255, 208, 40, 0.1); }
 .nav-btn.logout { margin-top: auto; color: var(--danger); }
@@ -181,7 +163,7 @@ body {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    opacity: 0.9; /* Leve transparência para fundir com o bg */
+    opacity: 0.9; 
 }
 
 /* --- HUD Overlay --- */
@@ -275,6 +257,22 @@ body {
 }
 .fab-btn:hover { transform: scale(1.1) rotate(90deg); box-shadow: 0 15px 40px rgba(255, 184, 0, 0.6); }
 
+#btn-fab-lunch {
+    bottom: 110px; 
+    background: #fff;
+    color: #000;
+}
+#btn-fab-lunch.active {
+    background: #FF9500; 
+    animation: pulse 2s infinite;
+}
+#btn-fab-lunch:disabled {
+    background: #333;
+    color: #555;
+    box-shadow: none;
+    cursor: not-allowed;
+}
+
 /* --- Modais & Tutorial Wizard --- */
 .modal {
     position: fixed;
@@ -292,25 +290,20 @@ body {
     position: relative;
     width: 500px;
     max-width: 90%;
-    padding: 0; /* Padding handled by internal containers */
+    padding: 0; 
     overflow: hidden;
 }
 
 /* Tutorial Wizard Styles */
-.wizard-container {
-    padding: 40px;
-    text-align: center;
-}
+.wizard-container { padding: 40px; text-align: center; }
 .wizard-step { display: none; animation: fadeIn 0.4s ease; }
 .wizard-step.active { display: block; }
 .wizard-step h2 { margin-bottom: 1rem; color: var(--primary); }
 .wizard-step p { line-height: 1.6; color: var(--text-muted); margin-bottom: 2rem; }
 .wizard-image { font-size: 3rem; margin-bottom: 1rem; color: #fff; }
-
 .wizard-dots { display: flex; justify-content: center; gap: 8px; margin-bottom: 24px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: rgba(255,255,255,0.2); transition: 0.3s; }
 .dot.active { background: var(--primary); width: 24px; border-radius: 4px; }
-
 .wizard-controls { display: flex; justify-content: space-between; margin-top: 10px; }
 
 /* Calibração */
@@ -324,20 +317,15 @@ body {
 @keyframes flash { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 @keyframes pulseText { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
 
-/* Correção de Separador */
-hr {
-    border: none;
-    border-top: 1px solid var(--glass-border);
-    margin: 1rem 0;
+@keyframes lunchPulse {
+    0% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 0 rgba(255, 149, 0, 0.4); }
+    70% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 30px rgba(255, 149, 0, 0); }
+    100% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 0 rgba(255, 149, 0, 0); }
 }
 
-/* Estilo para o Seletor de Perfil */
-.profile-selector {
-    padding: 0 0 1rem 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
+hr { border: none; border-top: 1px solid var(--glass-border); margin: 1rem 0; }
+
+.profile-selector { padding: 0 0 1rem 0; display: flex; flex-direction: column; gap: 8px; }
 
 .glass-input {
     background: rgba(255, 255, 255, 0.05);
@@ -347,116 +335,278 @@ hr {
     border-radius: 8px;
     font-size: 0.9rem;
     cursor: pointer;
-    appearance: none; /* Remove o estilo nativo do seletor */
+    appearance: none; 
     -webkit-appearance: none;
     -moz-appearance: none;
 }
 
-
-/* --- Estilo do Seletor Customizado (Select) --- */
-
-/* Aplica o estilo do glass-input a todas as tags select dentro da sidebar */
 .sidebar select.glass-input {
-    background: rgba(255, 255, 255, 0.05); /* Um pouco mais escuro que a superfície */
+    background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--glass-border);
     color: var(--text-main);
     padding: 10px 12px;
     border-radius: 8px;
     font-size: 0.95rem;
     cursor: pointer;
-    appearance: none; /* Remove o estilo nativo do seletor */
+    appearance: none; 
     -webkit-appearance: none;
     -moz-appearance: none;
     transition: var(--transition);
-    
-    /* Adiciona um ícone customizado para indicar que é um dropdown */
     background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%2020%2020%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M4.516%207.548c0.436-0.446%201.043-0.481%201.576%200l3.908%203.748%203.894-3.748c0.533-0.481%201.141-0.446%201.574%200s0.436%201.048%200%201.5l-4.437%204.269c-0.287%200.276-0.586%200.31-0.841%200.297-0.255%200.013-0.554-0.021-0.841-0.297l-4.437-4.269c-0.436-0.452-0.436-1.159%200-1.605z%22%2F%3E%3C%2Fsvg%3E");
     background-repeat: no-repeat;
     background-position: right 10px center;
-    padding-right: 30px; /* Garante que o texto não fique sob o ícone */
+    padding-right: 30px;
 }
 
-/* Estilo das Opções (difícil de customizar, mas forçamos o texto) */
-.glass-input option {
-    background-color: var(--bg-dark); /* Fundo escuro para a lista suspensa */
-    color: var(--text-main);
-    border: none;
-}
+.glass-input option { background-color: var(--bg-dark); color: var(--text-main); border: none; }
 
-/* --- Estilo da Lista de Histórico (Timeline) --- */
-.history-item {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    padding: 12px;
-    border-bottom: 1px solid var(--glass-border);
-}
-.history-item:last-child { border-bottom: none; }
-
-.history-time {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-    font-family: monospace;
-}
-
-.history-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(255,255,255,0.05);
-}
-.history-icon span { font-size: 18px; }
-
-/* Cores de ícone */
-.history-icon.danger { color: var(--danger); background: rgba(255, 69, 58, 0.1); }
-.history-icon.safe { color: var(--safe); background: rgba(50, 215, 75, 0.1); }
-.history-icon.primary { color: var(--primary); background: rgba(255, 208, 40, 0.1); }
-
-.history-msg {
-    font-size: 0.9rem;
-    color: var(--text-main);
-    flex: 1;
-}
-
-/* --- MODO ALMOÇO (Lock Screen) --- */
-/* Ofusca o conteúdo principal */
+/* --- Modo Almoço --- */
 .lunch-mode .sidebar,
 .lunch-mode .content {
-    filter: blur(12px) brightness(0.2); /* Borra e escurece */
-    pointer-events: none; /* Bloqueia cliques */
+    filter: blur(12px) brightness(0.2);
+    pointer-events: none;
     transition: all 0.5s ease;
 }
 
-/* Destaca o botão de almoço */
 .lunch-mode #btn-fab-lunch {
-    z-index: 9999; /* Garante que fica no topo */
-    transform: scale(1.3) !important; /* Aumenta o tamanho */
-    background: #FF9500 !important; /* Laranja forte */
-    box-shadow: 0 0 0 10000px rgba(0,0,0,0.7), /* Cria um overlay escuro na tela toda */
-                0 0 30px #FF9500; /* Glow no botão */
+    z-index: 9999;
+    transform: scale(1.3) !important;
+    background: #FF9500 !important;
+    box-shadow: 0 0 0 10000px rgba(0,0,0,0.7), 0 0 30px #FF9500;
     animation: lunchPulse 2s infinite;
 }
 
-/* Texto informativo (opcional, aparece via ::after no botão ou na tela) */
 .lunch-mode::after {
     content: "EM PAUSA - ALMOÇO";
     position: fixed;
-    top: 40%;
-    left: 50%;
+    top: 40%; left: 50%;
     transform: translate(-50%, -50%);
-    color: white;
-    font-size: 2rem;
-    font-weight: 800;
+    color: white; font-size: 2rem; font-weight: 800;
     z-index: 9999;
     text-shadow: 0 0 20px rgba(255, 149, 0, 0.5);
     pointer-events: none;
 }
 
-@keyframes lunchPulse {
-    0% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 0 rgba(255, 149, 0, 0.4); }
-    70% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 30px rgba(255, 149, 0, 0); }
-    100% { box-shadow: 0 0 0 100vmax rgba(0,0,0,0.85), 0 0 0 rgba(255, 149, 0, 0); }
+/* =========================================
+   --- ADMIN PANEL STYLES (CORRIGIDO) ---
+   ========================================= */
+
+.admin-layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    height: 100vh;
+    overflow: hidden;
 }
+
+.dashboard-container {
+    padding: 30px;
+    overflow-y: auto;
+    background: #020203;
+    display: flex;
+    flex-direction: column;
+    gap: 30px;
+}
+
+.header-dash {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* KPI GRID - MUDADO PARA FLEXBOX PARA FORÇAR ESPAÇO */
+.kpi-grid {
+    display: flex !important;
+    justify-content: space-between;
+    gap: 40px !important; /* Espaço forçado */
+    width: 100%;
+}
+
+.kpi-card {
+    background: var(--card-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+    flex: 1; /* Faz todos ocuparem o mesmo espaço */
+}
+
+.kpi-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; width: 4px; height: 100%;
+    background: var(--primary);
+    opacity: 0.5;
+}
+
+.kpi-label { font-size: 0.85rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+.kpi-value { font-size: 2rem; font-weight: 700; color: #fff; }
+.kpi-trend { font-size: 0.8rem; color: var(--safe); display: flex; align-items: center; gap: 4px; }
+.kpi-trend.negative { color: var(--danger); }
+
+/* GRÁFICOS - MUDADO PARA FLEXBOX */
+.charts-grid {
+    display: flex !important;
+    gap: 40px !important;
+    min-height: 400px;
+    height: auto;
+}
+
+.chart-box {
+    background: var(--card-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 20px;
+    position: relative;
+}
+
+/* Define tamanho dos gráficos */
+.chart-box:first-child { flex: 2; } /* O primeiro gráfico é maior */
+.chart-box:last-child { flex: 1; }  /* O gráfico de pizza é menor */
+
+.chart-header { display: flex; justify-content: space-between; margin-bottom: 15px; }
+.chart-title { font-weight: 600; color: var(--text-muted); }
+
+.logs-table-container {
+    background: var(--card-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 20px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; color: var(--text-muted); padding: 12px; font-size: 0.85rem; border-bottom: 1px solid var(--glass-border); }
+td { padding: 14px 12px; color: #fff; font-size: 0.9rem; border-bottom: 1px solid rgba(255,255,255,0.03); }
+tr:last-child td { border: none; }
+tr:hover td { background: rgba(255,255,255,0.02); }
+
+.badge { padding: 4px 12px; border-radius: 12px; font-size: 0.75rem; font-weight: 600; }
+.bg-danger { background: rgba(255, 69, 58, 0.2); color: var(--danger); }
+.bg-safe { background: rgba(50, 215, 75, 0.2); color: var(--safe); }
+.bg-warn { background: rgba(255, 208, 40, 0.2); color: var(--primary); }
+
+.date-filter {
+    background: var(--glass-surface);
+    border: 1px solid var(--glass-border);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+/* Admin Views Navigation */
+.admin-view { display: none; animation: fadeIn 0.4s ease; width: 100%; }
+.admin-view.active { display: block; }
+
+/* EQUIPE - MUDADO PARA FLEXBOX COM WRAP */
+.team-grid { 
+    display: flex !important;
+    flex-wrap: wrap; /* Permite quebrar linha */
+    gap: 15px !important; /* Espaço forçado */
+}
+
+.team-card { 
+    background: var(--card-bg); 
+    border: 1px solid var(--glass-border); 
+    border-radius: 16px; 
+    padding: 20px; 
+    text-align: center;
+    flex: 0 0 250px; /* Largura base fixa, mas flexível */
+    flex-grow: 1;
+}
+
+.team-avatar { width: 80px; height: 80px; border-radius: 50%; border: 3px solid var(--glass-border); margin-bottom: 15px; object-fit: cover; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+.status-online { background: var(--safe); box-shadow: 0 0 10px var(--safe); }
+
+/* Settings Section */
+.settings-section { max-width: 600px; }
+.setting-item { display: flex; justify-content: space-between; align-items: center; padding: 20px; border-bottom: 1px solid var(--glass-border); }
+.toggle-switch { position: relative; width: 50px; height: 26px; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #333; transition: .4s; border-radius: 34px; }
+.slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: .4s; border-radius: 50%; }
+input:checked + .slider { background-color: var(--primary); }
+input:checked + .slider:before { transform: translateX(24px); }
+
+/* Forms inside Modals */
+.form-group { margin-bottom: 15px; text-align: left; }
+.form-group label { display: block; color: var(--text-muted); margin-bottom: 5px; font-size: 0.9rem; }
+.form-input { 
+    width: 100%; 
+    background: rgba(255,255,255,0.05); 
+    border: 1px solid var(--glass-border); 
+    padding: 10px; 
+    border-radius: 8px; 
+    color: #fff; 
+    font-family: inherit;
+}
+.form-input:focus { border-color: var(--primary); }
+
+/* Forçar espaçamento REAL entre blocos do dashboard */
+.dashboard-container > * {
+    margin-bottom: 30px !important;
+}
+
+/* Garantir respiro entre o bloco dos gráficos e a tabela */
+.charts-grid {
+    margin-bottom: 30px !important;
+}
+
+/* Garantir respiro entre cards KPI */
+.kpi-grid > .kpi-card {
+    margin-right: 0 !important;
+}
+
+.kpi-grid {
+    margin-bottom: 30px !important;
+}
+
+.chart-box:last-child {
+    flex: 1;
+    max-width: 500px; /* ideal para pie/donut */
+}
+
+.charts-grid {
+    overflow: hidden;
+}
+
+.chart-box canvas {
+    max-width: 100%;
+}
+
+
+/* --- Danger Alert Fullscreen (Versão Otimizada) --- */
+.danger-overlay {
+    position: absolute;
+    inset: 0;
+    /* Removemos o radial-gradient complexo e o backdrop-filter */
+    background: rgba(255, 59, 48, 0.9); 
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 50;
+    /* Sem backdrop-filter para evitar lag */
+    animation: flash 0.8s infinite;
+}
+.danger-overlay h1 { 
+    font-size: 4rem; /* Um pouco menor para caber melhor no mobile */
+    font-weight: 900; 
+    letter-spacing: 5px; 
+    margin: 0; 
+    text-transform: uppercase; 
+    color: white;
+}
+
+
+#btn-add-member {
+    display: none !important; /* escondi o botão de Add membro */
+}
+

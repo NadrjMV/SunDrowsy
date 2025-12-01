@@ -1,34 +1,35 @@
 import { auth, db, googleProvider } from './firebase-config.js';
 
-// Elementos
 const kpiAlerts = document.getElementById('kpi-alerts');
 const kpiMicrosleeps = document.getElementById('kpi-microsleeps');
 const kpiLunches = document.getElementById('kpi-lunches');
 const kpiActiveUsers = document.getElementById('kpi-active-users');
+
 const tableBody = document.getElementById('logs-table-body');
 const periodFilter = document.getElementById('period-filter');
 const teamGrid = document.getElementById('team-grid-container');
 
-// Navegação
 const navBtns = document.querySelectorAll('.nav-btn[data-view]');
 const views = document.querySelectorAll('.admin-view');
 
+const btnAddMember = document.getElementById('btn-add-member');
+const addMemberModal = document.getElementById('add-member-modal');
+const closeMemberModal = document.getElementById('close-add-member');
+const formAddMember = document.getElementById('form-add-member');
+
 let charts = {}; 
 let unsubscribeLogs = null;
+let unsubscribeTeam = null;
 
-// --- AUTH CHECK & ROLE DETECTOR ---
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
         window.location.href = 'index.html';
         return;
     }
-    
-    // VERIFICAÇÃO DE ROLE (ADMIN/OWNER)
     try {
         const userDoc = await db.collection('users').doc(user.uid).get();
         const role = userDoc.exists ? userDoc.data().role : 'USER';
         
-        // Permite apenas ADMIN ou OWNER. Você pode adicionar seu próprio UID aqui para bypass se precisar.
         if (role !== 'ADMIN' && role !== 'OWNER') {
             alert("⛔ Acesso Negado: Apenas administradores.");
             window.location.href = 'index.html';
@@ -39,9 +40,8 @@ auth.onAuthStateChanged(async (user) => {
         const adminPhoto = document.getElementById('admin-photo');
         if(adminPhoto) adminPhoto.src = user.photoURL;
         
-        // Inicia Dashboard e carrega a Equipe
         setupRealtimeDashboard('today');
-        renderTeamView();
+        setupTeamListener();
 
     } catch (error) {
         console.error("Erro de permissão:", error);
@@ -49,14 +49,11 @@ auth.onAuthStateChanged(async (user) => {
     }
 });
 
-// --- NAVEGAÇÃO DE ABAS ---
 navBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-        // Atualiza Botões
         navBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
 
-        // Atualiza Views
         const viewId = btn.getAttribute('data-view');
         views.forEach(v => v.classList.remove('active'));
         const view = document.getElementById(`view-${viewId}`);
@@ -64,7 +61,6 @@ navBtns.forEach(btn => {
     });
 });
 
-// --- LISTENER DE FILTRO ---
 if(periodFilter) {
     periodFilter.addEventListener('change', (e) => {
         if (unsubscribeLogs) unsubscribeLogs();
@@ -74,17 +70,15 @@ if(periodFilter) {
 
 function setupRealtimeDashboard(period) {
     console.log(`📡 Conectando stream: ${period}`);
-    tableBody.style.opacity = '0.5';
+    if(tableBody) tableBody.style.opacity = '0.5';
 
     const now = new Date();
     const todayFolder = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
     
     let query;
     try {
-        // Tenta conectar no "Collection Group" (Global)
         query = db.collectionGroup(todayFolder);
     } catch (e) {
-        console.warn("⚠️ Fallback: Monitorando apenas usuário local.");
         query = db.collection('logs').doc(auth.currentUser.uid).collection(todayFolder);
     }
 
@@ -95,17 +89,17 @@ function setupRealtimeDashboard(period) {
             const uidFromPath = doc.ref.parent.parent ? doc.ref.parent.parent.id : null;
             logs.push({ ...data, uid: uidFromPath || data.uid });
         });
-        tableBody.style.opacity = '1';
+        
+        if(tableBody) tableBody.style.opacity = '1';
         processLogs(logs);
     }, (error) => {
-        console.error("Erro Stream:", error);
+        console.error("Erro Stream Logs:", error);
     });
 }
 
 function processLogs(logs) {
     logs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 
-    // KPIs
     const criticalAlerts = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('SONO PROFUNDO')).length;
     const microSleeps = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('MICROSSONO')).length;
     const lunches = logs.filter(l => l.type === 'LUNCH_START').length;
@@ -129,15 +123,14 @@ function processLogs(logs) {
     }
 
     renderCharts(logs);
-
     const sleepLogs = logs.filter(l => l.type === 'ALARM');
     renderGroupedTable(sleepLogs);
 }
 
 function renderGroupedTable(logs) {
+    if(!tableBody) return;
     tableBody.innerHTML = '';
     
-    // Cabeçalho simplificado como pedido
     const tableHeader = document.querySelector('.logs-table-container thead tr');
     if(tableHeader) {
         tableHeader.innerHTML = `
@@ -227,28 +220,6 @@ function renderGroupedTable(logs) {
     });
 }
 
-// SIMULAÇÃO DA EQUIPE (Visual)
-function renderTeamView() {
-    if(!teamGrid) return;
-    const mockTeam = [
-        { name: auth.currentUser?.displayName || "Você", role: "Admin", status: "online", img: auth.currentUser?.photoURL || "" },
-        { name: "Carlos Silva", role: "Motorista", status: "online", img: "https://ui-avatars.com/api/?name=Carlos+Silva&background=random" },
-        { name: "Ana Souza", role: "Vigia", status: "offline", img: "https://ui-avatars.com/api/?name=Ana+Souza&background=random" }
-    ];
-
-    teamGrid.innerHTML = mockTeam.map(m => `
-        <div class="team-card">
-            <img src="${m.img}" class="team-avatar">
-            <h3 style="margin:0;">${m.name}</h3>
-            <p style="color:var(--text-muted); margin:5px 0 15px 0;">${m.role}</p>
-            <div style="font-size:0.8rem;">
-                <span class="status-dot ${m.status === 'online' ? 'status-online' : ''}" style="background:${m.status==='online'?'var(--safe)':'#555'}"></span>
-                ${m.status === 'online' ? 'Monitorando Agora' : 'Offline'}
-            </div>
-        </div>
-    `).join('');
-}
-
 window.toggleGroup = function(id) {
     const el = document.getElementById(id);
     const icon = document.getElementById('icon-' + id);
@@ -269,6 +240,7 @@ function renderCharts(logs) {
         'Microssono': logs.filter(l => l.reason && l.reason.includes('MICRO')).length,
         'Almoço': logs.filter(l => l.type.includes('LUNCH')).length
     };
+    
     if (charts.type) charts.type.destroy();
     charts.type = new Chart(ctxType, {
         type: 'doughnut',
@@ -289,6 +261,7 @@ function renderCharts(logs) {
         const hour = log.timestamp.toDate().getHours();
         hours[hour]++;
     });
+    
     if (charts.fatigue) charts.fatigue.destroy();
     charts.fatigue = new Chart(ctxFatigue, {
         type: 'line',
@@ -325,4 +298,123 @@ function animateValue(obj, end) {
         if (progress < 1) window.requestAnimationFrame(step);
     };
     window.requestAnimationFrame(step);
+}
+
+function exportLogsToCSV() {
+    const rows = [['Horário', 'Colaborador', 'Função', 'Tipo', 'Detalhes']];
+    document.querySelectorAll('#logs-table-body tr:not([id])').forEach(row => {
+        const cells = row.querySelectorAll('td');
+        if(cells.length > 0) {
+            rows.push([
+                cells[0].innerText,
+                cells[1].innerText.split('\n')[0],
+                cells[1].innerText.split('\n')[1],
+                cells[2].innerText,
+                ''
+            ]);
+        }
+    });
+    
+    const csv = rows.map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-fadiga-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+}
+
+function setupTeamListener() {
+    if(!teamGrid) return;
+    unsubscribeTeam = db.collection('users').onSnapshot(snapshot => {
+        teamGrid.innerHTML = ''; 
+
+        if (snapshot.empty) {
+            teamGrid.innerHTML = '<p style="color:var(--text-muted); width:100%; padding:20px;">Nenhum membro encontrado. Adicione alguém!</p>';
+            return;
+        }
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const displayName = data.displayName || (data.email ? data.email.split('@')[0] : 'Sem Nome');
+            const photo = data.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&background=333`;
+            const isOnline = true; 
+
+            const card = `
+                <div class="team-card">
+                    <img src="${photo}" class="team-avatar">
+                    <h3 style="margin:0; font-size: 1rem;">${displayName}</h3>
+                    <p style="color:var(--text-muted); margin:5px 0 15px 0; font-size: 0.85rem;">${data.role || 'Usuário'}</p>
+                    <div style="font-size:0.8rem;">
+                        <span class="status-dot ${isOnline ? 'status-online' : ''}" style="background:${isOnline ? 'var(--safe)' : '#555'}"></span>
+                        <span style="color: var(--text-muted);">${isOnline ? 'Cadastrado' : 'Offline'}</span>
+                    </div>
+                    ${data.email ? `<small style="display:block; margin-top:10px; font-size:0.7rem; color:var(--text-muted); opacity: 0.7;">${data.email}</small>` : ''}
+                </div>
+            `;
+            teamGrid.innerHTML += card;
+        });
+    }, error => {
+        console.error("Erro ao carregar equipe:", error);
+        teamGrid.innerHTML = '<div style="color: var(--danger);">Erro ao carregar dados.</div>';
+    });
+}
+
+if(btnAddMember) {
+    btnAddMember.style.display = 'flex'; 
+    btnAddMember.addEventListener('click', () => {
+        if(addMemberModal) {
+            addMemberModal.classList.remove('hidden');
+            setTimeout(() => addMemberModal.style.opacity = '1', 10);
+        }
+    });
+}
+
+if(closeMemberModal) {
+    closeMemberModal.addEventListener('click', () => {
+        if(addMemberModal) {
+            addMemberModal.style.opacity = '0';
+            setTimeout(() => addMemberModal.classList.add('hidden'), 300);
+        }
+    });
+}
+
+if(formAddMember) {
+    formAddMember.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const name = document.getElementById('new-user-name').value;
+        const email = document.getElementById('new-user-email').value;
+        const role = document.getElementById('new-user-role').value;
+        const submitBtn = formAddMember.querySelector('button[type="submit"]');
+
+        if(!name || !email) return alert("Preencha todos os campos!");
+
+        try {
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Salvando...";
+
+            await db.collection('users').add({
+                displayName: name,
+                email: email,
+                role: role,
+                createdAt: new Date(),
+                photoURL: null, 
+                active: true
+            });
+
+            alert(`✅ ${name} pré-cadastrado com sucesso!`);
+            
+            formAddMember.reset();
+            addMemberModal.style.opacity = '0';
+            setTimeout(() => addMemberModal.classList.add('hidden'), 300);
+
+        } catch (error) {
+            console.error("Erro ao adicionar:", error);
+            alert("Erro ao salvar: " + error.message);
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = "Salvar Cadastro";
+        }
+    });
 }
