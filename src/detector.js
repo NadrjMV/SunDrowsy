@@ -3,12 +3,12 @@ import { db, auth } from './firebase-config.js';
 // --- CONFIGURAÇÕES PADRÃO ---
 const FACTORY_CONFIG = {
     // Tempos
-    CRITICAL_TIME_MS: 10000,        // 10s (Sono Profundo)
-    MICROSLEEP_TIME_MS: 3000,       // Reduzi levemente para pegar o inicio do cochilo
-    HEAD_DOWN_TIME_MS: 1000,        // 1s (Aviso inicial)
+    CRITICAL_TIME_MS: 15000,        // 15s (Sono Profundo)
+    MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
+    HEAD_DOWN_TIME_MS: 5000,       // 20s (Cabeça baixa)
     HEAD_CRITICAL_TIME_MS: 20000,   // 20s (Crítico - Novo Requisito)
     
-    LONG_BLINK_TIME_MS: 700,        
+    LONG_BLINK_TIME_MS: 1300,        
     BLINK_WINDOW_MS: 60000,         
     
     YAWN_TIME_MS: 1500,             

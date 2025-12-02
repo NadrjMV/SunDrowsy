@@ -542,90 +542,81 @@ if(btnPrev) btnPrev.addEventListener('click', () => {
 });
 
 btnStartCalib.addEventListener('click', async () => {
-    // 1. Prepara o ambiente
+    // 1. Acorda o contexto de áudio
     if (audioMgr && audioMgr.audioContext) audioMgr.audioContext.resume();
+    
     btnStartCalib.disabled = true;
 
-    const play = (file) => {
-        const audio = new Audio(`assets/${file}`);
-        audio.volume = 1.0; 
-        audio.play().catch(e => console.warn(`Erro audio: ${file}`, e));
-    };
+    // 2. TOCA O ÁUDIO COMPLETO AGORA (UMA VEZ SÓ)
+    // Certifique-se que o nome do arquivo é calib_full.mp3
+    const fullAudio = new Audio('assets/calibracao.mp3');
+    fullAudio.volume = 1.0;
+    fullAudio.play().catch(e => {
+        console.error("Erro ao tocar áudio completo:", e);
+        alert("Erro: Arquivo 'assets/calib_full.mp3' não encontrado.");
+    });
 
     // Variáveis de captura
     let avgOpenEAR = 0, avgClosedEAR = 0, avgYawnMAR = 0, avgHeadRatio = 0;
 
-    // --- FASE 1: BOAS VINDAS (Audio 1) ---
-    // "Bem vindo... sente-se de forma confortável..."
+    // --- FASE 1: INTRODUÇÃO (00:00 até 00:09) ---
+    // O áudio está falando: "Bem vindo... sente-se..."
     calibText.innerText = "Bem-vindo. Sente-se confortavelmente e olhe para frente.";
-    play('Audio 1.mp3'); 
-    calibProgress.style.width = "5%";
+    calibProgress.style.width = "10%";
     
-    // Tempo aumentado para 9s (O áudio é longo)
+    // Espera 9 segundos (Tempo da intro no áudio)
     await new Promise(r => setTimeout(r, 9000)); 
 
-    // --- FASE 2: OLHOS ABERTOS (Audio 2) ---
-    // "Primeiro mantenha os olhos abertos..."
+    // --- FASE 2: OLHOS ABERTOS (00:09 até 00:16) ---
+    // O áudio continua falando: "Mantenha os olhos abertos..."
     calibText.innerText = "Mantenha os olhos ABERTOS e a CABEÇA RETA.";
-    play('Audio 2.mp3'); 
     calibProgress.style.width = "30%";
     
-    // Espera 6s falar + 1s estabilizar
+    // Espera 7 segundos (Tempo da instrução no áudio)
     await new Promise(r => setTimeout(r, 7000));
 
-    // CAPTURA NEUTRA
+    // CAPTURA NEUTRA (Momento exato)
     avgOpenEAR = (currentLeftEAR + currentRightEAR) / 2;
     avgHeadRatio = currentHeadRatio;
     console.log("✅ Passo 1 (Neutro) Capturado");
-    play('beep.mp3'); // Confirmação sonora da captura
 
-    await new Promise(r => setTimeout(r, 1000)); // Pequena pausa após beep
-
-    // --- FASE 3: OLHOS FECHADOS (Audio 3) ---
-    // "Agora continue com a cabeça reta, porém mantenha os olhos fechados..."
+    // --- FASE 3: OLHOS FECHADOS (00:16 até 00:24) ---
+    // O áudio continua: "Agora feche os olhos..."
     calibText.innerText = "Mantenha os olhos FECHADOS...";
-    play('Audio 3.mp3');
     calibProgress.style.width = "60%";
 
-    // Espera 6s falar + 2s para você fechar o olho de fato
+    // Espera 8 segundos (Tempo da instrução no áudio)
     await new Promise(r => setTimeout(r, 8000));
     
     // CAPTURA FECHADO
     avgClosedEAR = (currentLeftEAR + currentRightEAR) / 2;
     console.log("✅ Passo 2 (Fechado) Capturado");
-    play('beep.mp3');
 
-    await new Promise(r => setTimeout(r, 1000));
-
-    // --- FASE 4: BOCEJO (Audio 4) ---
-    // "Certo, agora mantenha a boca aberta..."
+    // --- FASE 4: BOCEJO (00:24 até 00:31) ---
+    // O áudio continua: "Agora abra a boca..."
     calibText.innerText = "ABRA A BOCA (Simule um bocejo)...";
-    play('Audio 4.mp3');
     calibProgress.style.width = "85%";
 
-    // Espera 5s falar + 2s fazendo a boca
-    await new Promise(r => setTimeout(r, 7000));
+    // Espera 7 segundos (Tempo da instrução no áudio)
+    await new Promise(r => setTimeout(r, 8200));
     
     // CAPTURA BOCEJO
     avgYawnMAR = currentMAR;
     console.log("✅ Passo 3 (Bocejo) Capturado");
-    play('beep.mp3');
 
-    await new Promise(r => setTimeout(r, 1000));
-
-    // --- FASE 5: FINALIZAÇÃO (Audio 5) ---
-    // "Perfeito, a calibração facial foi realizada com sucesso."
+    // --- FASE 5: FINALIZAÇÃO (00:31 até o Fim) ---
+    // O áudio diz: "Calibração concluída..."
     if(detector) {
         detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR, avgHeadRatio);
     }
     
     calibText.innerText = "Calibração Concluída com Sucesso!";
-    play('Audio 5.mp3');
     calibProgress.style.width = "100%";
     
-    // Espera 4s para o áudio final terminar antes de fechar o modal
+    // Espera 4.5 segundos finais para o áudio terminar de falar
     await new Promise(r => setTimeout(r, 4500));
     
+    // Fecha tudo
     toggleModal(calibModal, false);
     btnStartCalib.disabled = false;
     calibText.innerText = "Sente-se confortavelmente e olhe para frente.";
