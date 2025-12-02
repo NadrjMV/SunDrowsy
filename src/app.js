@@ -542,57 +542,94 @@ if(btnPrev) btnPrev.addEventListener('click', () => {
 });
 
 btnStartCalib.addEventListener('click', async () => {
-    audioMgr.audioContext.resume();
+    // 1. Prepara o ambiente
+    if (audioMgr && audioMgr.audioContext) audioMgr.audioContext.resume();
     btnStartCalib.disabled = true;
-    
-    // Variáveis locais para armazenar as médias
-    let avgOpenEAR = 0;
-    let avgClosedEAR = 0;
-    let avgYawnMAR = 0;
-    let avgHeadRatio = 0; // Nova variável para cabeça
 
-    // PASSO 1: OLHOS ABERTOS + POSTURA NEUTRA
-    calibText.innerText = "Mantenha os olhos ABERTOS e a CABEÇA RETA...";
-    calibProgress.style.width = "10%";
-    await new Promise(r => setTimeout(r, 1500)); 
-    
-    // Coleta amostras
-    avgOpenEAR = (currentLeftEAR + currentRightEAR) / 2;
-    // *** NOVO: Captura a posição natural da cabeça ***
-    avgHeadRatio = currentHeadRatio; 
-    
-    console.log("Calibração - Passo 1 (Neutro):", { avgOpenEAR, avgHeadRatio });
+    const play = (file) => {
+        const audio = new Audio(`assets/${file}`);
+        audio.volume = 1.0; 
+        audio.play().catch(e => console.warn(`Erro audio: ${file}`, e));
+    };
 
+    // Variáveis de captura
+    let avgOpenEAR = 0, avgClosedEAR = 0, avgYawnMAR = 0, avgHeadRatio = 0;
+
+    // --- FASE 1: BOAS VINDAS (Audio 1) ---
+    // "Bem vindo... sente-se de forma confortável..."
+    calibText.innerText = "Bem-vindo. Sente-se confortavelmente e olhe para frente.";
+    play('Audio 1.mp3'); 
+    calibProgress.style.width = "5%";
+    
+    // Tempo aumentado para 9s (O áudio é longo)
+    await new Promise(r => setTimeout(r, 9000)); 
+
+    // --- FASE 2: OLHOS ABERTOS (Audio 2) ---
+    // "Primeiro mantenha os olhos abertos..."
+    calibText.innerText = "Mantenha os olhos ABERTOS e a CABEÇA RETA.";
+    play('Audio 2.mp3'); 
     calibProgress.style.width = "30%";
-    await new Promise(r => setTimeout(r, 2000));
+    
+    // Espera 6s falar + 1s estabilizar
+    await new Promise(r => setTimeout(r, 7000));
 
-    // PASSO 2: OLHOS FECHADOS
-    calibText.innerText = "Agora FECHE os olhos...";
-    calibProgress.style.width = "50%";
-    await new Promise(r => setTimeout(r, 2500));
+    // CAPTURA NEUTRA
+    avgOpenEAR = (currentLeftEAR + currentRightEAR) / 2;
+    avgHeadRatio = currentHeadRatio;
+    console.log("✅ Passo 1 (Neutro) Capturado");
+    play('beep.mp3'); // Confirmação sonora da captura
+
+    await new Promise(r => setTimeout(r, 1000)); // Pequena pausa após beep
+
+    // --- FASE 3: OLHOS FECHADOS (Audio 3) ---
+    // "Agora continue com a cabeça reta, porém mantenha os olhos fechados..."
+    calibText.innerText = "Mantenha os olhos FECHADOS...";
+    play('Audio 3.mp3');
+    calibProgress.style.width = "60%";
+
+    // Espera 6s falar + 2s para você fechar o olho de fato
+    await new Promise(r => setTimeout(r, 8000));
+    
+    // CAPTURA FECHADO
     avgClosedEAR = (currentLeftEAR + currentRightEAR) / 2;
+    console.log("✅ Passo 2 (Fechado) Capturado");
+    play('beep.mp3');
 
-    // PASSO 3: BOCEJO (ABRIR BOCA)
-    calibText.innerText = "Agora ABRA A BOCA (Simule um bocejo)...";
-    calibProgress.style.width = "75%";
-    await new Promise(r => setTimeout(r, 2500));
+    await new Promise(r => setTimeout(r, 1000));
+
+    // --- FASE 4: BOCEJO (Audio 4) ---
+    // "Certo, agora mantenha a boca aberta..."
+    calibText.innerText = "ABRA A BOCA (Simule um bocejo)...";
+    play('Audio 4.mp3');
+    calibProgress.style.width = "85%";
+
+    // Espera 5s falar + 2s fazendo a boca
+    await new Promise(r => setTimeout(r, 7000));
+    
+    // CAPTURA BOCEJO
     avgYawnMAR = currentMAR;
+    console.log("✅ Passo 3 (Bocejo) Capturado");
+    play('beep.mp3');
 
-    // FINALIZAÇÃO
-    // Envia TODOS os 4 parâmetros para o detector (incluindo avgHeadRatio)
+    await new Promise(r => setTimeout(r, 1000));
+
+    // --- FASE 5: FINALIZAÇÃO (Audio 5) ---
+    // "Perfeito, a calibração facial foi realizada com sucesso."
     if(detector) {
         detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR, avgHeadRatio);
     }
     
-    calibText.innerText = "Calibração Concluída!";
+    calibText.innerText = "Calibração Concluída com Sucesso!";
+    play('Audio 5.mp3');
     calibProgress.style.width = "100%";
     
-    setTimeout(() => {
-        toggleModal(calibModal, false);
-        btnStartCalib.disabled = false;
-        calibText.innerText = "Sente-se confortavelmente e olhe para frente.";
-        calibProgress.style.width = "0%";
-    }, 1000);
+    // Espera 4s para o áudio final terminar antes de fechar o modal
+    await new Promise(r => setTimeout(r, 4500));
+    
+    toggleModal(calibModal, false);
+    btnStartCalib.disabled = false;
+    calibText.innerText = "Sente-se confortavelmente e olhe para frente.";
+    calibProgress.style.width = "0%";
 });
 
 // --- LÓGICA DO ALMOÇO (1x POR DIA + LOGS + LOCK SCREEN) ---
