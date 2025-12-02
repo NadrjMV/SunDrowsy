@@ -396,24 +396,59 @@ let currentPitch = 0;
 
 // --- LOOP PROCESSAMENTO ---
 function onResults(results) {
-    // 1. Limpa e desenha o canvas (Isso tem que ser a cada frame)
+    // 1. Limpa o canvas
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
     
     if (!document.hidden) {
         canvasCtx.save();
         canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        
+        // Espelhamento (Mirror)
         canvasCtx.translate(canvasElement.width, 0);
         canvasCtx.scale(-1, 1);
-        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+        
+        // --- AQUI ESTÁ A MÁGICA ---
+        // Só desenha a foto da câmera se a variável for true
+        if (window.showCameraFeed) {
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+        }
+        // --------------------------
     }
 
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
 
-        // Desenha a malha (opcional, se estiver pesando muito, pode comentar essa linha)
+        // --- DESENHO DA MÁSCARA (VISUAL UPGRADE) ---
         if (!document.hidden) {
-            drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1.5});
+            if (window.showCameraFeed) {
+                // MODO CÂMERA LIGADA:
+                // Mantemos simples (apenas contornos) para não atrapalhar a visão do rosto real
+                drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1.5});
+            
+            } else {
+                // MODO CÂMERA DESLIGADA (HOLOGRÁFICO):
+                // Aqui desenhamos o modelo 3D completo e detalhado
+                
+                // 1. A Malha "Wireframe" (Triângulos) - Ciano Tecnológico bem suave
+                drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: 'rgba(0, 255, 255, 0.15)', lineWidth: 1});
+
+                // 2. Contorno do Rosto - Branco/Cinza
+                drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL, {color: 'rgba(255,255,255,0.5)', lineWidth: 2});
+
+                // 3. Destaque nos Olhos e Sobrancelhas (Foco da IA) - Seu Amarelo Marca
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#FFD028', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#FFD028', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYEBROW, {color: '#FFD028', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYEBROW, {color: '#FFD028', lineWidth: 2});
+
+                // 4. Boca - Um tom avermelhado/laranja para diferenciar
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#FF453A', lineWidth: 2});
+                
+                // 5. Íris (Pontos focais)
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_IRIS, {color: '#32D74B', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_IRIS, {color: '#32D74B', lineWidth: 2});
+            }
         }
         
         // Cálculos Matemáticos (Isso é leve, pode rodar a cada frame)
@@ -785,6 +820,48 @@ if(formProfile) {
             btn.disabled = false;
             btn.innerText = originalText;
         }
+    });
+}
+
+// --- CONTROLE DE VISIBILIDADE DA CÂMERA (CONSOLE) ---
+window.showCameraFeed = true; 
+const btnFabCamera = document.getElementById('btn-fab-camera');
+
+window.toggleCamera = function(forceState) {
+    // 1. Define o novo estado
+    if (typeof forceState === 'boolean') {
+        window.showCameraFeed = forceState;
+    } else {
+        window.showCameraFeed = !window.showCameraFeed;
+    }
+    
+    // 2. Atualiza o Botão Visualmente
+    if (btnFabCamera) {
+        const icon = btnFabCamera.querySelector('span');
+        if (window.showCameraFeed) {
+            // Modo Normal (Vídeo)
+            icon.innerText = 'videocam';
+            btnFabCamera.classList.remove('active');
+            btnFabCamera.style.background = 'rgba(255,255,255,0.1)';
+            btnFabCamera.style.color = '#fff';
+        } else {
+            // Modo Matrix (Só Malha)
+            icon.innerText = 'texture'; // Ícone de malha/textura
+            btnFabCamera.classList.add('active');
+            // Estilo Cyberpunk no botão
+            btnFabCamera.style.background = 'rgba(0, 255, 255, 0.2)';
+            btnFabCamera.style.color = 'cyan';
+            btnFabCamera.style.boxShadow = '0 0 15px rgba(0, 255, 255, 0.4)';
+        }
+    }
+    
+    console.log(window.showCameraFeed ? "📷 CÂMERA: LIGADA" : "💀 MODO HOLOGRÁFICO ATIVO");
+};
+
+// Listener do Clique
+if (btnFabCamera) {
+    btnFabCamera.addEventListener('click', () => {
+        window.toggleCamera(); // Alterna entre os modos
     });
 }
 
