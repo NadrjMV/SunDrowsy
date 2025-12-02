@@ -1,13 +1,15 @@
 import { auth, googleProvider, db } from './firebase-config.js';
 import { AudioManager } from './audio-manager.js';
 import { DrowsinessDetector } from './detector.js'; 
-import { LANDMARKS, calculateEAR, calculateMAR, calculateHeadTilt } from './vision-logic.js';
+import { LANDMARKS, calculateEAR, calculateMAR, calculateHeadTilt, calculatePitchRatio } from './vision-logic.js';
 
 // --- VARIAVEIS GLOBAIS DE LEITURA INSTANTANEA ---
 let currentLeftEAR = 0;
 let currentRightEAR = 0;
 let currentMAR = 0;
-let currentHeadRatio = 0;
+let currentHeadRatio = 0; // Nova variável para cabeça
+
+let lastUiUpdate = 0;
 
 let animationFrameId = null;
 
@@ -89,7 +91,7 @@ auth.onAuthStateChanged(async (user) => {
                     throw new Error("⛔ CONTA DESATIVADA: Contacte o administrador.");
                 }
 
-                // 2. CORREÇÃO DE NOMES (Isso resolve o problema do Admin)
+                // 2. CORREÇÃO DE NOMES
                 // Atualiza o perfil no banco com os dados mais recentes do Google
                 await userRef.set({
                     displayName: user.displayName,
@@ -102,14 +104,13 @@ auth.onAuthStateChanged(async (user) => {
                 console.log(`✅ Acesso Permitido: ${userRole}`);
             } 
             
-            // --- CENÁRIO 2: NOVO USUÁRIO (O BLOQUEIO ACONTECE AQUI) ---
+            // --- CENÁRIO 2: NOVO USUÁRIO ---
             else {
                 console.log("👤 Novo visitante. Verificando convite...");
                 
-                // Busca token na URL ou na Memória (caso o redirect tenha limpado a URL)
+                // Busca token na URL ou na Memória
                 const tokenToUse = inviteToken || sessionStorage.getItem('sd_invite_token');
 
-                // >>> AQUI ESTÁ A BARREIRA <<<
                 if (!tokenToUse) {
                     throw new Error("⛔ CADASTRO BLOQUEADO: Você precisa de um Link de Convite oficial para entrar.");
                 }
@@ -126,7 +127,7 @@ auth.onAuthStateChanged(async (user) => {
                 const now = new Date();
                 const expiresAt = inviteData.expiresAt.toDate(); 
 
-                // Valida as regras do convite (Ativo? Tem usos? Venceu?)
+                // Valida as regras do convite
                 if (!inviteData.active) throw new Error("⛔ Este convite foi cancelado.");
                 if (inviteData.usesLeft <= 0) throw new Error("⛔ Este convite já atingiu o limite de usos.");
                 if (expiresAt < now) throw new Error("⛔ Este convite expirou.");
@@ -159,7 +160,7 @@ auth.onAuthStateChanged(async (user) => {
                 sessionStorage.removeItem('sd_invite_token'); // Limpa para não reusar
             }
 
-            // --- UI PÓS-LOGIN (Só chega aqui se passou por tudo acima) ---
+            // --- UI PÓS-LOGIN ---
             loginView.classList.remove('active');
             loginView.classList.add('hidden');
             appView.classList.remove('hidden');
@@ -178,23 +179,27 @@ auth.onAuthStateChanged(async (user) => {
             initSystem(); 
             if (detector) detector.setRole(userRole);
 
-            // Verifica Calibração
+            // Verifica Calibração e carrega do banco se existir
             if (userData && userData.calibration && detector) {
                 console.log("☁️ Calibração carregada.");
                 const calib = userData.calibration;
+                
+                // Carrega EAR e MAR
                 if (calib.EAR_THRESHOLD) detector.config.EAR_THRESHOLD = calib.EAR_THRESHOLD;
                 if (calib.MAR_THRESHOLD) detector.config.MAR_THRESHOLD = calib.MAR_THRESHOLD;
+                
+                // Carrega HEAD RATIO (Novo)
                 if (calib.HEAD_RATIO_THRESHOLD) detector.config.HEAD_RATIO_THRESHOLD = calib.HEAD_RATIO_THRESHOLD;
+                
                 detector.state.isCalibrated = true;
             } else {
                 toggleModal(calibModal, true);
             }
 
         } catch (error) {
-            // --- O BLOQUEIO FINAL ---
             console.error("❌ ACESSO NEGADO:", error.message);
-            alert(error.message); // Mostra o motivo pro usuário
-            auth.signOut(); // CHUTA O USUÁRIO PARA FORA
+            alert(error.message);
+            auth.signOut();
             
             appView.classList.remove('active');
             appView.classList.add('hidden');
@@ -271,10 +276,7 @@ async function initSystem() {
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
             videoElement.play();
-            
-            // REMOVI o startBackgroundLoop();
             startDetectionLoop(); 
-            
             detector.updateUI("SISTEMA ATIVO"); // Feedback visual
         };
     } catch (err) {
@@ -283,51 +285,49 @@ async function initSystem() {
     }
 }
 
-function startBackgroundLoop() {
-    const blob = new Blob([`
-        let interval = null;
-        self.onmessage = function(e) {
-            if (e.data === 'start') {
-                interval = setInterval(() => postMessage('tick'), 33);
-            } else if (e.data === 'stop') {
-                clearInterval(interval);
-            }
-        };
-    `], { type: 'application/javascript' });
+const debugSlider = document.getElementById('debug-slider');
+const debugThreshVal = document.getElementById('debug-thresh-val');
 
-    tickerWorker = new Worker(URL.createObjectURL(blob));
-    tickerWorker.onmessage = async () => {
-        if (isProcessingFrame || !videoElement.videoWidth) return;
-        isProcessingFrame = true;
-        try { await faceMesh.send({image: videoElement}); } catch (error) { }
-        isProcessingFrame = false;
-    };
-    tickerWorker.postMessage('start');
-    detector.updateUI("ATIVO");
+if (debugSlider) {
+    debugSlider.addEventListener('input', (e) => {
+        const newVal = parseFloat(e.target.value);
+        
+        if (detector) {
+            // Atualiza a config em tempo real
+            detector.config.HEAD_RATIO_THRESHOLD = newVal;
+            
+            // Log para você saber o valor exato
+            console.clear(); // Limpa para não poluir
+            console.log(`🎚️ AJUSTE MANUAL: Novo Limite = ${newVal}`);
+            console.log(`ℹ️ Dica: Se a leitura atual cair ABAIXO de ${newVal}, o alarme dispara.`);
+        }
+        
+        debugThreshVal.innerText = newVal.toFixed(2);
+    });
 }
 
 function stopSystem() {
-    // Cancela o loop visual
     if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
         animationFrameId = null;
     }
     
-    // Para worker se ainda existir (limpeza de legado)
     if (tickerWorker) { 
         tickerWorker.terminate(); 
         tickerWorker = null; 
     }
 
-    // Pra câmera
     if (videoElement.srcObject) {
         videoElement.srcObject.getTracks().forEach(track => track.stop());
         videoElement.srcObject = null;
     }
 }
 
+let currentPitch = 0;
+
 // --- LOOP PROCESSAMENTO ---
 function onResults(results) {
+    // 1. Limpa e desenha o canvas (Isso tem que ser a cada frame)
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
     
@@ -342,24 +342,62 @@ function onResults(results) {
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
 
+        // Desenha a malha (opcional, se estiver pesando muito, pode comentar essa linha)
         if (!document.hidden) {
             drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1.5});
         }
         
-        // Calcula EAR e MAR
+        // Cálculos Matemáticos (Isso é leve, pode rodar a cada frame)
         currentLeftEAR = calculateEAR(landmarks, LANDMARKS.LEFT_EYE);
         currentRightEAR = calculateEAR(landmarks, LANDMARKS.RIGHT_EYE);
         currentMAR = calculateMAR(landmarks);
+        currentHeadRatio = calculateHeadTilt(landmarks); 
+        currentPitch = calculatePitchRatio(landmarks); // Seu novo cálculo
 
-        // *** NOVO: Calcula inclinação da cabeça ***
-        const headTiltData = calculateHeadTilt(landmarks);
-
-        currentHeadRatio = calculateHeadTilt(landmarks); // Pega o valor bruto
-
+        // Envia para a lógica de detecção
         if (detector) {
             detector.processDetection(currentLeftEAR, currentRightEAR, currentMAR);
-            // Passa o valor bruto para o detector processar
-            detector.processHeadTilt(currentHeadRatio);
+            detector.processHeadTilt(currentHeadRatio, currentPitch);
+        }
+
+        // --- OTIMIZAÇÃO DE UI (THROTTLE) ---
+        // Só atualiza os textos e slider se passou 200ms (5 FPS de UI)
+        const now = Date.now();
+        if (now - lastUiUpdate > 200) {
+            lastUiUpdate = now;
+
+            const debugLive = document.getElementById('debug-live-val');
+            const debugState = document.getElementById('debug-state');
+            const slider = document.getElementById('debug-slider');
+
+            if (debugLive && detector) {
+                debugLive.innerText = currentHeadRatio.toFixed(3);
+                
+                // Só atualiza o slider se o usuário NÃO estiver arrastando ele
+                if (document.activeElement !== slider) {
+                     // Verifica se o valor mudou antes de forçar update do DOM (evita Reflow)
+                     const currentThresh = detector.config.HEAD_RATIO_THRESHOLD;
+                     if (Math.abs(parseFloat(slider.value) - currentThresh) > 0.01) {
+                        slider.value = currentThresh;
+                        document.getElementById('debug-thresh-val').innerText = currentThresh.toFixed(2);
+                     }
+                }
+
+                // Lógica Visual
+                const isRatioLow = currentHeadRatio < detector.config.HEAD_RATIO_THRESHOLD;
+                const isLookingUp = currentPitch > 2.0;
+
+                if (isLookingUp) {
+                    debugState.innerText = "BLOQUEIO: OLHANDO CIMA ⬆️";
+                    debugState.style.color = "var(--primary)";
+                } else if (isRatioLow) {
+                    debugState.innerText = "DETECTADO: BAIXO ⬇️";
+                    debugState.style.color = "var(--danger)";
+                } else {
+                    debugState.innerText = "ESTADO: NORMAL ✅";
+                    debugState.style.color = "var(--safe)";
+                }
+            }
         }
     } else {
         if (detector && detector.state.isCalibrated) detector.updateUI("ROSTO NÃO DETECTADO");
@@ -407,17 +445,20 @@ btnStartCalib.addEventListener('click', async () => {
     let avgOpenEAR = 0;
     let avgClosedEAR = 0;
     let avgYawnMAR = 0;
-    let avgHeadRatio = 0;
+    let avgHeadRatio = 0; // Nova variável para cabeça
 
     // PASSO 1: OLHOS ABERTOS + POSTURA NEUTRA
-    calibText.innerText = "Mantenha os olhos ABERTOS e a CABEÇA RETA..."; // Atualize o texto
+    calibText.innerText = "Mantenha os olhos ABERTOS e a CABEÇA RETA...";
     calibProgress.style.width = "10%";
-    await new Promise(r => setTimeout(r, 1000)); 
+    await new Promise(r => setTimeout(r, 1500)); 
     
     // Coleta amostras
     avgOpenEAR = (currentLeftEAR + currentRightEAR) / 2;
-    avgHeadRatio = currentHeadRatio; // <--- CAPTURA A POSIÇÃO NATURAL DA CABEÇA
+    // *** NOVO: Captura a posição natural da cabeça ***
+    avgHeadRatio = currentHeadRatio; 
     
+    console.log("Calibração - Passo 1 (Neutro):", { avgOpenEAR, avgHeadRatio });
+
     calibProgress.style.width = "30%";
     await new Promise(r => setTimeout(r, 2000));
 
@@ -425,22 +466,23 @@ btnStartCalib.addEventListener('click', async () => {
     calibText.innerText = "Agora FECHE os olhos...";
     calibProgress.style.width = "50%";
     await new Promise(r => setTimeout(r, 2500));
-    avgClosedEAR = (currentLeftEAR + currentRightEAR) / 2; // Pega o valor do momento (fechado)
+    avgClosedEAR = (currentLeftEAR + currentRightEAR) / 2;
 
     // PASSO 3: BOCEJO (ABRIR BOCA)
     calibText.innerText = "Agora ABRA A BOCA (Simule um bocejo)...";
     calibProgress.style.width = "75%";
     await new Promise(r => setTimeout(r, 2500));
-    avgYawnMAR = currentMAR; // Pega o valor máximo de abertura
+    avgYawnMAR = currentMAR;
 
     // FINALIZAÇÃO
-    if(detector) detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR, avgHeadRatio);
+    // Envia TODOS os 4 parâmetros para o detector (incluindo avgHeadRatio)
+    if(detector) {
+        detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR, avgHeadRatio);
+    }
+    
     calibText.innerText = "Calibração Concluída!";
     calibProgress.style.width = "100%";
     
-    // Envia tudo pro detector (Open EAR, Closed EAR, Open MAR)
-    if(detector) detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR); 
-
     setTimeout(() => {
         toggleModal(calibModal, false);
         btnStartCalib.disabled = false;
@@ -469,7 +511,6 @@ function logLunchAction(actionType) {
     const day = String(now.getDate()).padStart(2, '0');
     const dateFolder = `${year}-${month}-${day}`;
     
-    // Salva na mesma estrutura dos alarmes: logs/UID/DATA/evento
     db.collection('logs')
         .doc(auth.currentUser.uid)
         .collection(dateFolder)
@@ -491,14 +532,11 @@ function hasLunchToday() {
 }
 
 async function startDetectionLoop() {
-    // Se o vídeo não estiver pronto ou pausado, tenta no próximo quadro
     if (!videoElement.videoWidth || videoElement.paused || videoElement.ended) {
         animationFrameId = requestAnimationFrame(startDetectionLoop);
         return;
     }
 
-    // Se já estiver processando (ex: durante o alarme pesado),
-    // ele PULA este frame e não encavala a fila.
     if (!isProcessingFrame) {
         isProcessingFrame = true;
         try {
@@ -509,8 +547,6 @@ async function startDetectionLoop() {
             isProcessingFrame = false;
         }
     }
-
-    // Só pede o próximo quando o navegador tiver fôlego
     animationFrameId = requestAnimationFrame(startDetectionLoop);
 }
 
@@ -526,14 +562,11 @@ function toggleLunchState(active) {
         detector.stopAlarm();
         detector.updateUI("PAUSA: ALMOÇO 🍔");
         
-        // CSS: Trava a tela
         appContainer.classList.add('lunch-mode');
         
-        // Lógica
         if(btnLunch) btnLunch.classList.add('active');
         localStorage.setItem(LUNCH_KEY, new Date().toDateString());
         
-        // Log
         logLunchAction("LUNCH_START");
         console.log("🍔 Almoço INICIADO. Tela travada.");
 
@@ -541,18 +574,15 @@ function toggleLunchState(active) {
         // --- FINALIZANDO ALMOÇO ---
         detector.updateUI("ATIVO");
         
-        // CSS: Destrava a tela
         appContainer.classList.remove('lunch-mode');
 
         if(btnLunch) {
             btnLunch.classList.remove('active');
-            // Bloqueia visualmente o botão pois já usou a cota do dia
             btnLunch.disabled = true;
             btnLunch.style.opacity = "0.5";
             btnLunch.style.filter = "grayscale(1)";
         }
         
-        // Log
         logLunchAction("LUNCH_END");
         console.log("▶️ Almoço FINALIZADO. Sistema retomado.");
     }
@@ -560,7 +590,6 @@ function toggleLunchState(active) {
 
 // Click Listener
 if (btnLunch) {
-    // Checa estado inicial ao carregar a página
     if (hasLunchToday()) {
         btnLunch.disabled = true;
         btnLunch.style.opacity = "0.5";
@@ -568,19 +597,16 @@ if (btnLunch) {
     }
 
     btnLunch.addEventListener('click', () => {
-        // 1. Se já está almoçando, o clique serve para VOLTAR (destravar tela)
         if (isLunching) {
             toggleLunchState(false);
             return;
         }
 
-        // 2. Se não está almoçando, verifica bloqueio
         if (hasLunchToday()) {
             alert("⛔ Pausa já utilizada hoje!");
             return;
         }
 
-        // 3. Abre confirmação
         toggleModal(lunchModal, true);
     });
 }
@@ -605,7 +631,6 @@ window.resetLunch = function() {
     isLunching = false;
     localStorage.removeItem(LUNCH_KEY);
     
-    // Remove trava visual
     if(appContainer) appContainer.classList.remove('lunch-mode');
     
     if (detector) {
@@ -630,7 +655,6 @@ if(btnOpenProfile) {
         const user = auth.currentUser;
         if(!user) return;
 
-        // Popula campos
         profileNameInput.value = user.displayName || '';
         profilePhotoInput.value = user.photoURL || '';
         profileEmailReadonly.value = user.email || '';
@@ -647,11 +671,9 @@ if(profilePhotoInput) {
         if(url && url.length > 10) {
             profilePreviewImg.src = url;
         } else {
-            // Fallback se limpar
             if(auth.currentUser) profilePreviewImg.src = auth.currentUser.photoURL;
         }
     });
-    // Fallback se imagem quebrar
     profilePreviewImg.addEventListener('error', () => {
         profilePreviewImg.src = 'https://ui-avatars.com/api/?background=333&color=fff&name=ERROR';
     });
@@ -671,19 +693,16 @@ if(formProfile) {
             const newName = profileNameInput.value;
             const newPhoto = profilePhotoInput.value;
 
-            // 1. Atualiza no Auth (Google Identity local)
             await auth.currentUser.updateProfile({
                 displayName: newName,
                 photoURL: newPhoto
             });
 
-            // 2. Atualiza no Firestore (Banco de Dados)
             await db.collection('users').doc(auth.currentUser.uid).update({
                 displayName: newName,
                 photoURL: newPhoto
             });
 
-            // 3. Atualiza UI imediatamente
             document.getElementById('user-name').innerText = newName;
             document.getElementById('user-photo').src = newPhoto;
 

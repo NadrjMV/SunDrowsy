@@ -266,21 +266,23 @@ function filterAndRenderLogs() {
 }
 
 function processLogs(logs) {
+    // Ordena logs crus para processamento
     logs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 
-    // Cálculos de KPI baseados nos logs filtrados
+    // --- 1. CÁLCULO DE KPIs ---
     const criticalAlerts = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('SONO PROFUNDO')).length;
     const microSleeps = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('MICROSSONO')).length;
+    
+    // CORREÇÃO GRÁFICO: Conta apenas LUNCH_START para não duplicar o número de almoços
     const lunches = logs.filter(l => l.type === 'LUNCH_START').length;
 
-    // Contagem de usuários ativos no filtro atual
     const uniqueUsers = new Set();
     logs.forEach(l => {
         if (l.uid) uniqueUsers.add(l.uid);
         else if (l.userName) uniqueUsers.add(l.userName);
     });
     
-    // UI Updates
+    // UI Updates KPI
     animateValue(kpiAlerts, criticalAlerts);
     animateValue(kpiMicrosleeps, microSleeps);
     animateValue(kpiLunches, lunches);
@@ -291,7 +293,6 @@ function processLogs(logs) {
         const small = kpiActiveUsers.nextElementSibling;
         
         if (userFilter.value !== 'ALL') {
-            // Texto específico quando filtrando um usuário
             if (small) small.innerText = count > 0 ? "Usuário Online" : "Sem dados hoje";
         } else {
             if (small) small.innerText = `${count} monitorados hoje`;
@@ -300,9 +301,73 @@ function processLogs(logs) {
 
     renderCharts(logs);
     
-    // Filtra apenas alarmes para a tabela detalhada
-    const sleepLogs = logs.filter(l => l.type === 'ALARM');
-    renderGroupedTable(sleepLogs);
+    // --- 2. LÓGICA DE UNIFICAÇÃO (ALMOÇO) ---
+    // Cria uma lista combinada onde Start+End viram uma única linha com duração
+    const mergedLogs = mergeLunchEvents(logs);
+
+    // Renderiza a tabela com os dados unificados (Alarmes + Almoços Unificados)
+    renderGroupedTable(mergedLogs);
+}
+
+// NOVA FUNC: Junta o Início e o Fim do almoço
+function mergeLunchEvents(rawLogs) {
+    const combined = [];
+    const activeLunches = new Map(); // Guarda temporariamente quem começou o almoço
+
+    // Processamos do mais antigo pro mais novo pra casar Início -> Fim
+    const sortedAsc = [...rawLogs].sort((a, b) => a.timestamp.seconds - b.timestamp.seconds);
+
+    sortedAsc.forEach(log => {
+        if (log.type === 'LUNCH_START') {
+            // Guarda o início na memória
+            activeLunches.set(log.uid, log);
+        } 
+        else if (log.type === 'LUNCH_END') {
+            const startLog = activeLunches.get(log.uid);
+            
+            if (startLog) {
+                // FECHOU O PAR: Calcula tempo
+                const start = startLog.timestamp.toDate();
+                const end = log.timestamp.toDate();
+                const diffMs = end - start;
+                const minutes = Math.floor(diffMs / 60000);
+                
+                const timeStrStart = start.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                const timeStrEnd = end.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+                combined.push({
+                    ...startLog, // Mantém dados do usuário
+                    type: 'LUNCH_REPORT', // Tipo especial pra tabela
+                    timestamp: log.timestamp, // Usa a hora do fim para ordenação
+                    reason: `Pausa Alimentar (${minutes} min)`, // Texto do Badge
+                    details: `Das ${timeStrStart} às ${timeStrEnd}` // Texto detalhado
+                });
+                
+                activeLunches.delete(log.uid); // Remove da memória
+            } else {
+                // Fim sem início (pode acontecer se o log de inicio foi perdido ou é de ontem)
+                combined.push(log); 
+            }
+        } 
+        else {
+            // Alarmes e outros logs passam direto
+            combined.push(log);
+        }
+    });
+
+    // Quem sobrou no mapa ainda está almoçando
+    activeLunches.forEach(log => {
+        const start = log.timestamp.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        combined.push({
+            ...log,
+            type: 'LUNCH_ACTIVE',
+            reason: 'Em Almoço',
+            details: `Iniciado às ${start} (Em andamento)`
+        });
+    });
+
+    // Retorna ordenado do mais recente para o antigo (para a tabela)
+    return combined.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 }
 
 // --- EQUIPE & POPULAÇÃO DO FILTRO ---
@@ -381,23 +446,26 @@ function renderGroupedTable(logs) {
             <th style="width: 120px;">HORÁRIO</th>
             <th>COLABORADOR</th>
             <th>OCORRÊNCIA</th>
-            <th style="text-align: right;">AÇÃO</th>
+            <th style="text-align: right;">DETALHES</th>
         `;
     }
 
     if (logs.length === 0) {
         tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">
             <span class="material-icons-round" style="font-size: 24px; vertical-align: middle; margin-right: 8px;">check_circle</span>
-            Nenhum incidente registrado para este filtro.
+            Nenhum registro encontrado.
         </td></tr>`;
         return;
     }
 
+    // Lógica de Agrupamento mantida, apenas ajustando a exibição
     const groups = [];
     let currentGroup = null;
 
     logs.forEach(log => {
         const userId = log.userName || log.uid || 'Desconhecido';
+        // Agrupa apenas se for o mesmo usuário E não for um relatório de almoço (gosto de deixar almoço separado)
+        // Mas para manter simples, vamos agrupar tudo por usuário sequencial
         if (currentGroup && currentGroup.userId === userId) {
             currentGroup.items.push(log);
         } else {
@@ -418,13 +486,30 @@ function renderGroupedTable(logs) {
         const date = lastLog.timestamp.toDate();
         const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         
-        let summaryText = isMultiple ? `<span style="color: #fff; font-weight: bold;">${group.items.length} Alertas Seguidos</span>` : (lastLog.reason || "Fadiga Detectada");
+        // Define o texto do Badge (Alerta ou Almoço)
+        let summaryText = isMultiple ? `<span style="color: #fff; font-weight: bold;">${group.items.length} Registros</span>` : (lastLog.reason || "Evento");
+        
+        // Cor do Badge
+        let badgeClass = 'bg-danger'; // Vermelho para alertas
+        if (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') badgeClass = 'warning'; // Amarelo/Laranja (você pode criar classe .bg-warning no css ou usar style inline)
+        
+        // Badge HTML
+        let badgeHtml = `<span class="badge ${badgeClass}" style="${badgeClass === 'warning' ? 'background: rgba(255, 149, 0, 0.2); color: #FF9500;' : ''}">${summaryText}</span>`;
+
+        // Detalhes (Coluna da Direita)
+        let actionHtml = '';
+        if (lastLog.details) {
+            actionHtml = `<span style="font-size: 0.85rem; color: var(--text-muted);">${lastLog.details}</span>`;
+        } else if (isMultiple) {
+            actionHtml = `<span class="material-icons-round" id="icon-group-${index}" style="color: var(--text-muted); transition: 0.3s;">expand_more</span>`;
+        }
+
         const groupId = `group-${index}`;
 
         const mainRow = `
-            <tr class="group-header" onclick="toggleGroup('${groupId}')" style="cursor: pointer;">
+            <tr class="group-header" onclick="${isMultiple ? `toggleGroup('${groupId}')` : ''}" style="cursor: ${isMultiple ? 'pointer' : 'default'};">
                 <td style="font-family: monospace; color: var(--primary);">
-                    ${time} ${isMultiple ? '<span style="font-size:10px; opacity:0.7"> (último)</span>' : ''}
+                    ${time}
                 </td>
                 <td>
                     <div style="display: flex; flex-direction: column;">
@@ -432,9 +517,9 @@ function renderGroupedTable(logs) {
                         <span style="font-size: 0.75rem; color: var(--text-muted);">${group.role}</span>
                     </div>
                 </td>
-                <td><span class="badge bg-danger">${summaryText}</span></td>
+                <td>${badgeHtml}</td>
                 <td style="text-align: right;">
-                    ${isMultiple ? `<span class="material-icons-round" id="icon-${groupId}" style="color: var(--text-muted); transition: 0.3s;">expand_more</span>` : ''}
+                    ${actionHtml}
                 </td>
             </tr>
         `;
@@ -444,10 +529,13 @@ function renderGroupedTable(logs) {
             let detailsHtml = '';
             group.items.forEach(item => {
                 const iTime = item.timestamp.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                // Se o item tiver 'details' (Almoço dentro de um grupo), mostra ele, senão mostra a reason (Alerta)
+                const desc = item.details ? `<strong>${item.reason}</strong> - ${item.details}` : item.reason;
+                
                 detailsHtml += `
                     <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
                         <span style="font-family: monospace; color: var(--text-muted); font-size: 0.85rem;">${iTime}</span>
-                        <span style="color: #fff; font-size: 0.9rem;">${item.reason}</span>
+                        <span style="color: #fff; font-size: 0.9rem;">${desc}</span>
                     </div>
                 `;
             });
@@ -482,7 +570,7 @@ function renderCharts(logs) {
     const typeCounts = {
         'Sono Profundo': logs.filter(l => l.reason && l.reason.includes('SONO')).length,
         'Microssono': logs.filter(l => l.reason && l.reason.includes('MICRO')).length,
-        'Almoço': logs.filter(l => l.type.includes('LUNCH')).length
+        'Almoço': logs.filter(l => l.type === 'LUNCH_START').length
     };
     
     if (charts.type) charts.type.destroy();

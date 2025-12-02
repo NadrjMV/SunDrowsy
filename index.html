@@ -44,9 +44,26 @@
             
             <button class="nav-btn active"><span class="material-icons-round">analytics</span> Monitoramento</button>
             <button class="nav-btn" id="btn-tutorial-open"><span class="material-icons-round">school</span> Guia Rápido</button>
-            
+
+            <div class="debug-panel" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-top: 20px;">
+                <h4 style="margin: 0 0 10px 0; font-size: 0.8rem; color: var(--primary); text-transform: uppercase;">Ajuste Fino (Cabeça)</h4>
+                
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 5px;">
+                    <span>Leitura Atual:</span>
+                    <span id="debug-live-val" style="color: #fff; font-weight: bold;">0.00</span>
+                </div>
+
+                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 5px;">
+                    <span>Limite (Trigger):</span>
+                    <span id="debug-thresh-val" style="color: var(--primary); font-weight: bold;">--</span>
+                </div>
+
+                <input type="range" id="debug-slider" disabled="true" min="0.50" max="1.50" step="0.01" style="width: 100%; cursor: pointer;">
+                
+                <small id="debug-state" style="display: block; margin-top: 8px; text-align: center; font-weight: bold; color: var(--safe);">ESTADO: NORMAL</small>
+            </div>
             <div style="flex: 1;"></div>
-            
+                        
             <div class="profile-selector">
                 <small style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 6px; display: block;">Modo de Operação:</small>
                 <select id="role-selector" class="glass-input" style="width: 100%;">

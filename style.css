@@ -517,49 +517,60 @@ select option { background-color: #1a1a1e; color: #fff; padding: 12px; }
     margin-top: auto; /* Empurra para o fundo */
 }
 
-/* --- LUNCH MODE (TRAVAMENTO DE TELA) --- */
+/* --- LUNCH MODE (TRAVAMENTO DA TELA)  --- */
 
-/* Quando a classe .lunch-mode é ativada no #app-view */
+/* Quando o modo almoço ativa */
 #app-view.lunch-mode {
     position: relative;
 }
 
-/* Desfoca sidebar e conteúdo */
-#app-view.lunch-mode .sidebar,
-#app-view.lunch-mode .content {
+/* 1. Desfoca apenas a Sidebar */
+#app-view.lunch-mode .sidebar {
     filter: blur(15px) grayscale(80%);
-    pointer-events: none; /* Impede cliques em tudo */
-    transition: all 0.5s ease;
+    pointer-events: none;
     opacity: 0.4;
+    transition: all 0.5s ease;
 }
 
-/* TRATAMENTO ESPECIAL PARA O BOTÃO FLUTUANTE */
+/* 2. Desfoca os elementos visuais da câmera (Irmãos do botão), 
+   SEM desfocar o container pai (.content), para não afetar o botão */
+#app-view.lunch-mode .input_video,
+#app-view.lunch-mode .output_canvas,
+#app-view.lunch-mode .hud-top,
+#app-view.lunch-mode #btn-fab-calibrate,
+#app-view.lunch-mode .danger-overlay {
+    filter: blur(15px) grayscale(80%);
+    pointer-events: none; /* Impede cliques no que está atrás */
+    opacity: 0.4;
+    transition: all 0.5s ease;
+}
+
+/* 3. O Botão de Almoço permanece nítido e NO LUGAR DELE */
 #app-view.lunch-mode #btn-fab-lunch {
-    position: fixed; /* Fixa na tela para sair do container relativo */
-    bottom: 50%;     /* Centraliza verticalmente */
-    right: 50%;      /* Centraliza horizontalmente */
-    transform: translate(50%, 50%) scale(1.5); /* Aumenta o tamanho */
-    z-index: 9999;   /* Garante que fique acima de tudo */
-    pointer-events: auto !important; /* Reativa os cliques */
-    filter: none !important; /* Remove filtros herdados */
+    /* Não alteramos bottom/right, ele respeita o CSS original (#btn-fab-lunch) */
+    z-index: 9999; /* Garante que fique acima de tudo */
+    pointer-events: auto !important; /* Mantém clicável */
+    
+    filter: none !important;
     opacity: 1 !important;
     
-    /* Estilo do botão ativo */
+    /* Apenas muda a aparência para indicar que está ativo (Pausa) */
     background: var(--primary);
     color: #000;
-    box-shadow: 0 0 50px var(--primary-glow);
+    box-shadow: 0 0 50px var(--primary-glow); /* Brilho intenso para destacar no blur */
+    transform: scale(1.1); /* Leve aumento para ênfase, sem sair do lugar */
     animation: pulseLunch 2s infinite;
 }
 
-/* Altera o ícone/texto visualmente via CSS se quiser, ou mantém o JS */
+/* Removemos qualquer after que altere o texto, mantendo o ícone original */
 #app-view.lunch-mode #btn-fab-lunch::after {
-    content: 'RETOMAR';
-    position: absolute;
-    bottom: -25px;
-    font-size: 12px;
-    font-weight: 800;
-    color: #fff;
-    white-space: nowrap;
+    display: none;
+}
+
+@keyframes pulseLunch {
+    0% { box-shadow: 0 0 0 0 rgba(255, 208, 40, 0.7); }
+    70% { box-shadow: 0 0 0 20px rgba(255, 208, 40, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
 }
 
 #calibration-modal .modal-content {
@@ -596,10 +607,4 @@ select option { background-color: #1a1a1e; color: #fff; padding: 12px; }
 }
 #calibration-modal .close-btn:hover {
     opacity: 1;
-}
-
-@keyframes pulseLunch {
-    0% { box-shadow: 0 0 0 0 rgba(255, 208, 40, 0.7); }
-    70% { box-shadow: 0 0 0 20px rgba(255, 208, 40, 0); }
-    100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
 }
