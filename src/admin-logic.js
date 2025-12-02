@@ -45,6 +45,8 @@ let globalRawLogs = []; // Armazena todos os logs antes de filtrar
 
 let tooltipEl = null;
 
+let currentUserRole = 'USER';
+
 // --- AUTH & INIT ---
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
@@ -220,16 +222,15 @@ function setupRealtimeDashboard(period) {
     console.log(`📡 Conectando stream: ${period}`);
     if(tableBody) tableBody.style.opacity = '0.5';
 
-    // Determina a query baseada na data (Simplificado para 'today' por enquanto)
     const now = new Date();
-    // Lógica simples de data (Pode ser expandida para query range no futuro)
+    // Lógica simples de data (aprimorada para pegar logs passados se necessário futuramente)
     const todayFolder = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
     
     let query;
     try {
-        query = db.collectionGroup(todayFolder);
+        // Tenta buscar em group (requer index) ou fallback para path direto
+        query = db.collectionGroup(todayFolder); 
     } catch (e) {
-        // Fallback se collectionGroup falhar (indexes)
         query = db.collection('logs').doc(auth.currentUser.uid).collection(todayFolder);
     }
 
@@ -237,20 +238,51 @@ function setupRealtimeDashboard(period) {
         const logs = [];
         snapshot.forEach(doc => {
             const data = doc.data();
-            // Tenta pegar o UID do path se não vier no documento
             const uidFromPath = doc.ref.parent.parent ? doc.ref.parent.parent.id : null;
-            logs.push({ ...data, uid: data.uid || uidFromPath });
+            
+            logs.push({ 
+                ...data, 
+                uid: data.uid || uidFromPath,
+                // *** CRÍTICO PARA DELEÇÃO ***
+                id: doc.id,               // ID do documento
+                dateFolder: doc.ref.parent.id // Nome da coleção (ex: 2023-10-13)
+            });
         });
         
-        // Salva no global e renderiza
         globalRawLogs = logs;
         if(tableBody) tableBody.style.opacity = '1';
         
+        // Verifica se é OWNER para mostrar botões de perigo
+        checkOwnerPermissions();
+
         filterAndRenderLogs();
 
     }, (error) => {
         console.error("Erro Stream Logs:", error);
     });
+}
+
+// Verifica permissão e mostra/esconde botões
+function checkOwnerPermissions() {
+    const user = auth.currentUser;
+    if (user) {
+        db.collection('users').doc(user.uid).get().then(doc => {
+            if (doc.exists) {
+                currentUserRole = doc.data().role;
+                
+                // COMENTEI A LINHA QUE MOSTRAVA O BOTÃO
+                /* const btnWipe = document.getElementById('btn-wipe-logs');
+                if (currentUserRole === 'OWNER' && btnWipe) {
+                    btnWipe.style.display = 'inline-flex';
+                } 
+                */
+
+                // Apenas re-renderiza a tabela para mostrar as lixeirinhas individuais (se quiser)
+                // Se quiser esconder até as individuais, comente a linha abaixo também.
+                renderGroupedTable(mergeLunchEvents(globalRawLogs)); 
+            }
+        });
+    }
 }
 
 // NOVA FUNÇÃO DE FILTRAGEM
@@ -661,33 +693,33 @@ function renderGroupedTable(logs) {
     if(!tableBody) return;
     tableBody.innerHTML = '';
     
-    // Header fixo da tabela
+    // Header fixo (Adicionando coluna Ações se for OWNER)
     const tableHeader = document.querySelector('.logs-table-container thead tr');
+    const isOwner = (currentUserRole === 'OWNER');
+
     if(tableHeader) {
         tableHeader.innerHTML = `
             <th style="width: 120px;">HORÁRIO</th>
             <th>COLABORADOR</th>
             <th>OCORRÊNCIA</th>
             <th style="text-align: right;">DETALHES</th>
+            ${isOwner ? '<th style="width: 50px;"></th>' : ''} 
         `;
     }
 
     if (logs.length === 0) {
-        tableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">
+        tableBody.innerHTML = `<tr><td colspan="${isOwner ? 5 : 4}" style="text-align:center; color: var(--text-muted); padding: 30px;">
             <span class="material-icons-round" style="font-size: 24px; vertical-align: middle; margin-right: 8px;">check_circle</span>
             Nenhum registro encontrado.
         </td></tr>`;
         return;
     }
 
-    // Lógica de Agrupamento mantida, apenas ajustando a exibição
     const groups = [];
     let currentGroup = null;
 
     logs.forEach(log => {
         const userId = log.userName || log.uid || 'Desconhecido';
-        // Agrupa apenas se for o mesmo usuário E não for um relatório de almoço (gosto de deixar almoço separado)
-        // Mas para manter simples, vamos agrupar tudo por usuário sequencial
         if (currentGroup && currentGroup.userId === userId) {
             currentGroup.items.push(log);
         } else {
@@ -708,17 +740,10 @@ function renderGroupedTable(logs) {
         const date = lastLog.timestamp.toDate();
         const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         
-        // Define o texto do Badge (Alerta ou Almoço)
         let summaryText = isMultiple ? `<span style="color: #fff; font-weight: bold;">${group.items.length} Registros</span>` : (lastLog.reason || "Evento");
-        
-        // Cor do Badge
-        let badgeClass = 'bg-danger'; // Vermelho para alertas
-        if (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') badgeClass = 'warning'; // Amarelo/Laranja (você pode criar classe .bg-warning no css ou usar style inline)
-        
-        // Badge HTML
+        let badgeClass = (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') ? 'warning' : 'bg-danger';
         let badgeHtml = `<span class="badge ${badgeClass}" style="${badgeClass === 'warning' ? 'background: rgba(255, 149, 0, 0.2); color: #FF9500;' : ''}">${summaryText}</span>`;
 
-        // Detalhes (Coluna da Direita)
         let actionHtml = '';
         if (lastLog.details) {
             actionHtml = `<span style="font-size: 0.85rem; color: var(--text-muted);">${lastLog.details}</span>`;
@@ -727,12 +752,29 @@ function renderGroupedTable(logs) {
         }
 
         const groupId = `group-${index}`;
+        
+        // Botão Delete (Lixeira) para a linha principal
+        // Se for grupo, deleta o grupo inteiro (implementação avançada) ou avisa.
+        // Por segurança, vamos permitir deletar individualmente dentro do grupo, 
+        // mas se for item único, deleta direto.
+        let deleteBtn = '';
+        if (isOwner) {
+            if (!isMultiple) {
+                // Item único
+                deleteBtn = `
+                <td style="text-align: right; width: 50px;">
+                    <button class="btn-icon-danger" onclick="confirmDeleteOne('${lastLog.uid}', '${lastLog.dateFolder}', '${lastLog.id}')" title="Apagar Registro">
+                        <span class="material-icons-round">delete</span>
+                    </button>
+                </td>`;
+            } else {
+                deleteBtn = `<td></td>`;
+            }
+        }
 
         const mainRow = `
             <tr class="group-header" onclick="${isMultiple ? `toggleGroup('${groupId}')` : ''}" style="cursor: ${isMultiple ? 'pointer' : 'default'};">
-                <td style="font-family: monospace; color: var(--primary);">
-                    ${time}
-                </td>
+                <td style="font-family: monospace; color: var(--primary);">${time}</td>
                 <td>
                     <div style="display: flex; flex-direction: column;">
                         <span style="font-weight: 600;">${group.userName}</span>
@@ -740,9 +782,8 @@ function renderGroupedTable(logs) {
                     </div>
                 </td>
                 <td>${badgeHtml}</td>
-                <td style="text-align: right;">
-                    ${actionHtml}
-                </td>
+                <td style="text-align: right;">${actionHtml}</td>
+                ${deleteBtn}
             </tr>
         `;
         tableBody.innerHTML += mainRow;
@@ -751,25 +792,137 @@ function renderGroupedTable(logs) {
             let detailsHtml = '';
             group.items.forEach(item => {
                 const iTime = item.timestamp.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                // Se o item tiver 'details' (Almoço dentro de um grupo), mostra ele, senão mostra a reason (Alerta)
                 const desc = item.details ? `<strong>${item.reason}</strong> - ${item.details}` : item.reason;
                 
+                // Botão Delete Individual dentro do grupo
+                const itemDelete = isOwner ? `
+                    <button class="btn-icon-danger" onclick="confirmDeleteOne('${item.uid}', '${item.dateFolder}', '${item.id}')" title="Apagar Item">
+                        <span class="material-icons-round" style="font-size: 18px;">delete</span>
+                    </button>
+                ` : '';
+
                 detailsHtml += `
-                    <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                        <span style="font-family: monospace; color: var(--text-muted); font-size: 0.85rem;">${iTime}</span>
-                        <span style="color: #fff; font-size: 0.9rem;">${desc}</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <div style="display:flex; gap: 15px;">
+                            <span style="font-family: monospace; color: var(--text-muted); font-size: 0.85rem;">${iTime}</span>
+                            <span style="color: #fff; font-size: 0.9rem;">${desc}</span>
+                        </div>
+                        ${itemDelete}
                     </div>
                 `;
             });
             tableBody.innerHTML += `
                 <tr id="${groupId}" style="display: none; background: rgba(255,255,255,0.02);">
-                    <td colspan="4" style="padding: 0 20px 20px 20px;">
+                    <td colspan="${isOwner ? 5 : 4}" style="padding: 0 20px 20px 20px;">
                         <div style="background: rgba(0,0,0,0.3); border-radius: 8px; padding: 15px; margin-top: 5px;">
                             <div style="margin-top: 10px;">${detailsHtml}</div>
                         </div>
                     </td>
                 </tr>
             `;
+        }
+    });
+}
+
+// --- LÓGICA DE DELEÇÃO (APENAS OWNER) ---
+
+// 1. Deletar UM ÚNICO log
+window.confirmDeleteOne = async function(uid, dateFolder, docId) {
+    // Para a propagação do clique (evita abrir/fechar o grupo se tiver)
+    if(window.event) window.event.stopPropagation();
+
+    if (!confirm("⚠️ ATENÇÃO: Deseja apagar este registro permanentemente?\nEssa ação não pode ser desfeita.")) {
+        return;
+    }
+
+    try {
+        await db.collection('logs').doc(uid).collection(dateFolder).doc(docId).delete();
+        // O onSnapshot vai atualizar a tela automaticamente
+        console.log("Log deletado com sucesso.");
+    } catch (error) {
+        console.error("Erro ao deletar:", error);
+        alert("Erro ao deletar: " + error.message);
+    }
+};
+
+// 2. Lógica do Botão "Limpar Geral / Usuário"
+const btnWipe = document.getElementById('btn-wipe-logs');
+const btnWipeText = document.getElementById('btn-wipe-text');
+
+if (userFilter && btnWipeText) {
+    // Atualiza o texto do botão conforme o filtro
+    userFilter.addEventListener('change', () => {
+        if (userFilter.value === 'ALL') {
+            btnWipeText.innerText = "Limpar TUDO (Vista)";
+        } else {
+            const userName = userFilter.options[userFilter.selectedIndex].text;
+            btnWipeText.innerText = `Limpar logs de ${userName.split(' ')[0]}`;
+        }
+    });
+}
+
+if (btnWipe) {
+    btnWipe.addEventListener('click', async () => {
+        if (!globalRawLogs || globalRawLogs.length === 0) return alert("Nada para deletar.");
+
+        const selectedUser = userFilter.value;
+        let logsToDelete = [];
+        let confirmMsg = "";
+
+        // Define o que deletar baseado no filtro visual atual
+        if (selectedUser === 'ALL') {
+            logsToDelete = globalRawLogs; // Deleta tudo que está carregado na memória/tela
+            confirmMsg = `🚨 PERIGO EXTREMO 🚨\n\nVocê está prestes a apagar TODOS os ${logsToDelete.length} registros visíveis na tela.\n\nIsso limpará os dados de TODOS os usuários no período selecionado.\n\nTem certeza absoluta?`;
+        } else {
+            logsToDelete = globalRawLogs.filter(l => l.uid === selectedUser);
+            confirmMsg = `⚠️ Você está prestes a apagar todos os ${logsToDelete.length} registros do usuário selecionado.\n\nConfirma a exclusão?`;
+        }
+
+        if (logsToDelete.length === 0) return alert("Nenhum log encontrado para este filtro.");
+
+        if (confirm(confirmMsg)) {
+            // Dupla verificação para Limpar Tudo
+            if (selectedUser === 'ALL') {
+                const check = prompt("Digite 'DELETAR' para confirmar a exclusão em massa:");
+                if (check !== 'DELETAR') return alert("Ação cancelada.");
+            }
+
+            btnWipe.disabled = true;
+            btnWipe.innerText = "Deletando...";
+
+            // Processo em Batch (Lotes de 500, limite do Firestore)
+            const total = logsToDelete.length;
+            let deleted = 0;
+            const batchSize = 400; // Margem de segurança
+            
+            try {
+                // Como os logs estão espalhados em subcollections diferentes (por dia/uid), 
+                // não dá pra usar um batch único simples. Vamos fazer Promises paralelas.
+                // Para não estourar o limite de conexões, fazemos em chunks.
+                
+                for (let i = 0; i < total; i += batchSize) {
+                    const chunk = logsToDelete.slice(i, i + batchSize);
+                    const promises = chunk.map(log => {
+                        if (log.uid && log.dateFolder && log.id) {
+                            return db.collection('logs').doc(log.uid).collection(log.dateFolder).doc(log.id).delete();
+                        }
+                        return Promise.resolve();
+                    });
+                    
+                    await Promise.all(promises);
+                    deleted += chunk.length;
+                    console.log(`Deletados ${deleted}/${total}...`);
+                }
+
+                alert("Limpeza concluída com sucesso.");
+
+            } catch (error) {
+                console.error("Erro na deleção em massa:", error);
+                alert("Ocorreu um erro durante a deleção. Atualize a página.");
+            } finally {
+                btnWipe.disabled = false;
+                btnWipe.innerHTML = '<span class="material-icons-round" style="font-size: 18px; vertical-align: middle;">delete_forever</span> <span id="btn-wipe-text">Limpar Vista</span>';
+            }
         }
     });
 }
@@ -1001,3 +1154,24 @@ function exportLogsToCSV() {
     document.body.removeChild(link);
 }
 
+// --- FECHAMENTO GLOBAL DE MODAIS (ESC & CLIQUE FORA) ---
+
+// 1. Fechar com tecla ESC
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        const activeModals = document.querySelectorAll('.modal:not(.hidden)');
+        activeModals.forEach(modal => {
+            modal.style.opacity = '0'; // Animação de saída
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        });
+    }
+});
+
+// 2. Fechar clicando no fundo (Backdrop)
+window.addEventListener('click', (e) => {
+    // Se o alvo do clique tiver a classe 'modal' (significa que clicou no fundo escuro e não no conteúdo)
+    if (e.target.classList.contains('modal')) {
+        e.target.style.opacity = '0';
+        setTimeout(() => e.target.classList.add('hidden'), 300);
+    }
+});

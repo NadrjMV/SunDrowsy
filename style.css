@@ -779,3 +779,37 @@ select option { background-color: #1a1a1e; color: #fff; padding: 12px; }
     margin-right: 10px;
     vertical-align: middle;
 }
+
+/* --- BOTÃO DE ÍCONE (Ações da Tabela) --- */
+.btn-icon-danger {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px; /* Área de clique maior */
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    display: inline-flex; /* Centraliza o ícone */
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+}
+
+.btn-icon-danger:hover {
+    background: rgba(255, 69, 58, 0.15); /* Fundo vermelho suave */
+    transform: scale(1.1);
+}
+
+.btn-icon-danger:active {
+    transform: scale(0.95);
+}
+
+.btn-icon-danger span {
+    color: var(--danger);
+    font-size: 20px; /* Tamanho padronizado */
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.btn-icon-danger:hover span {
+    opacity: 1;
+}

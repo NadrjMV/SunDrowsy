@@ -43,6 +43,11 @@
                     </div>
 
                     <div style="display: flex; gap: 12px; align-items: center;">
+                        <button id="btn-wipe-logs" class="btn-secondary" disabled style="display: none; border-color: var(--danger); color: var(--danger); padding: 6px 12px; font-size: 0.8rem; cursor: not-allowed; opacity: 0.5;">
+                            <span class="material-icons-round" style="font-size: 16px; vertical-align: middle;">delete_forever</span>
+                            <span id="btn-wipe-text" style="margin-left: 5px;">Limpar</span>
+                        </button>
+
                         <span style="color: var(--text-muted); font-size: 0.9rem;">Filtrar:</span>
                         <select id="user-filter" class="date-filter" style="width: 180px;">
                             <option value="ALL">Todos os Usuários</option>
