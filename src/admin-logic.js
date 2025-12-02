@@ -43,6 +43,8 @@ let unsubscribeLogs = null;
 let unsubscribeTeam = null;
 let globalRawLogs = []; // Armazena todos os logs antes de filtrar
 
+let tooltipEl = null;
+
 // --- AUTH & INIT ---
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
@@ -272,8 +274,6 @@ function processLogs(logs) {
     // --- 1. CÁLCULO DE KPIs ---
     const criticalAlerts = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('SONO PROFUNDO')).length;
     const microSleeps = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('MICROSSONO')).length;
-    
-    // CORREÇÃO GRÁFICO: Conta apenas LUNCH_START para não duplicar o número de almoços
     const lunches = logs.filter(l => l.type === 'LUNCH_START').length;
 
     const uniqueUsers = new Set();
@@ -299,15 +299,168 @@ function processLogs(logs) {
         }
     }
 
+    // Renderiza os gráficos
     renderCharts(logs);
     
-    // --- 2. LÓGICA DE UNIFICAÇÃO (ALMOÇO) ---
-    // Cria uma lista combinada onde Start+End viram uma única linha com duração
+    // Renderiza as Tabelas
     const mergedLogs = mergeLunchEvents(logs);
-
-    // Renderiza a tabela com os dados unificados (Alarmes + Almoços Unificados)
     renderGroupedTable(mergedLogs);
+
+    // --- RENDERIZA A ABA RELATÓRIOS ---
+    renderReports(logs);
 }
+
+// --- LÓGICA DE RELATÓRIOS (RANKING & HEATMAP) ---
+function renderReports(logs) {
+    if (!logs || logs.length === 0) return;
+
+    // --- CRIAÇÃO DO TOOLTIP (SE NÃO EXISTIR) ---
+    if (!tooltipEl) {
+        tooltipEl = document.createElement('div');
+        tooltipEl.className = 'heatmap-tooltip';
+        document.body.appendChild(tooltipEl);
+    }
+
+    const alarmLogs = logs.filter(l => l.type === 'ALARM');
+
+    // Preparação de Dados
+    const userStats = {};
+    const heatmapData = {}; 
+
+    alarmLogs.forEach(log => {
+        const uid = log.uid || 'anon';
+        const name = log.userName || 'Desconhecido';
+        
+        // Totais para Ranking
+        if (!userStats[uid]) userStats[uid] = { name: name, count: 0, uid: uid };
+        userStats[uid].count++;
+
+        // Totais para Heatmap
+        const hour = log.timestamp.toDate().getHours(); 
+        if (!heatmapData[uid]) heatmapData[uid] = Array(24).fill(0);
+        heatmapData[uid][hour]++;
+    });
+
+    const sortedUsers = Object.values(userStats).sort((a, b) => b.count - a.count);
+
+    // --- GRÁFICO RANKING (MANTIDO IGUAL) ---
+    const ctxRanking = document.getElementById('rankingChart');
+    if (ctxRanking) {
+        if (charts.ranking) charts.ranking.destroy();
+        charts.ranking = new Chart(ctxRanking.getContext('2d'), {
+            type: 'bar',
+            data: {
+                labels: sortedUsers.slice(0, 5).map(u => u.name),
+                datasets: [{
+                    label: 'Alertas',
+                    data: sortedUsers.slice(0, 5).map(u => u.count),
+                    backgroundColor: ['#FF453A', '#FF9F0A', '#FFD60A', '#32D74B', '#64D2FF'],
+                    borderWidth: 0,
+                    borderRadius: 4,
+                    barThickness: 20
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8E8E93' } },
+                    y: { grid: { display: false }, ticks: { color: '#fff', font: { size: 11 } } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+
+    // --- MAPA DE CALOR "CYBER THERMAL" ---
+    const heatmapContainer = document.getElementById('heatmap-container');
+    if (heatmapContainer) {
+        let html = '<div class="heatmap-grid">';
+        
+        // Header
+        html += '<div style="font-size:0.7rem; color:#888; text-align:right; padding-right:10px; align-self:end;">COLABORADOR</div>'; 
+        for (let h = 0; h < 24; h++) {
+            // Formata hora: 00, 01...
+            const hh = String(h).padStart(2, '0');
+            html += `<div class="heatmap-header-cell">${hh}h</div>`;
+        }
+        html += '<div class="heatmap-header-cell">TTL</div>'; // Header Total
+
+        // Linhas
+        const usersToRender = sortedUsers.slice(0, 10);
+        
+        if (usersToRender.length === 0) {
+            html += '<div style="grid-column: 1/-1; padding:30px; text-align:center; color: var(--text-muted);">Nenhum dado térmico capturado hoje.</div>';
+        } else {
+            usersToRender.forEach(user => {
+                // Label Nome
+                html += `<div class="heatmap-user-label">${user.name.split(' ')[0]}</div>`;
+                
+                const hours = heatmapData[user.uid] || Array(24).fill(0);
+                let userTotal = 0;
+
+                hours.forEach((count, hourIndex) => {
+                    userTotal += count;
+                    let heatClass = '';
+                    
+                    // Lógica de Intensidade (Calor)
+                    if (count === 1) heatClass = 'heat-lvl-1';       // Azul
+                    else if (count >= 2 && count <= 3) heatClass = 'heat-lvl-2'; // Roxo
+                    else if (count >= 4 && count <= 5) heatClass = 'heat-lvl-3'; // Rosa
+                    else if (count >= 6) heatClass = 'heat-lvl-4';   // Fogo
+
+                    // Data Attributes para o Tooltip ler
+                    html += `<div class="heatmap-cell ${heatClass}" 
+                                  onmouseover="showTooltip(event, '${user.name}', ${hourIndex}, ${count})" 
+                                  onmousemove="moveTooltip(event)" 
+                                  onmouseout="hideTooltip()">
+                             </div>`;
+                });
+
+                // Coluna Total da linha
+                html += `<div class="heatmap-total-label">${userTotal}</div>`;
+            });
+        }
+
+        html += '</div>';
+        heatmapContainer.innerHTML = html;
+    }
+}
+
+// --- FUNÇÕES GLOBAIS DO TOOLTIP (PRECISAM ESTAR NO WINDOW PARA O HTML ACESSAR) ---
+window.showTooltip = function(e, name, hour, count) {
+    if(!tooltipEl) return;
+    if(count === 0) return; // Não mostra tooltip se não tiver dados
+
+    const hourStr = String(hour).padStart(2, '0') + ":00";
+    const nextHourStr = String(hour + 1).padStart(2, '0') + ":00";
+
+    tooltipEl.innerHTML = `
+        <h4>${name}</h4>
+        <span>Horário: <strong>${hourStr} - ${nextHourStr}</strong></span>
+        <span>Alertas: <strong style="color:var(--primary);">${count}</strong></span>
+        <span style="font-size:0.65rem; color:#888; margin-top:4px;">Clique para filtrar logs</span>
+    `;
+    
+    tooltipEl.style.display = 'block';
+    moveTooltip(e);
+};
+
+window.moveTooltip = function(e) {
+    if(!tooltipEl) return;
+    // Pega a posição do mouse e soma um offset
+    const x = e.clientX + 15;
+    const y = e.clientY + 15;
+    
+    // Evita sair da tela (básico)
+    tooltipEl.style.left = x + 'px';
+    tooltipEl.style.top = y + 'px';
+};
+
+window.hideTooltip = function() {
+    if(tooltipEl) tooltipEl.style.display = 'none';
+};
 
 // NOVA FUNC: Junta o Início e o Fim do almoço
 function mergeLunchEvents(rawLogs) {

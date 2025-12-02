@@ -22,6 +22,7 @@
             
             <button class="nav-btn active" data-view="dashboard"><span class="material-icons-round">analytics</span> Visão Geral</button>
             <button class="nav-btn" data-view="team"><span class="material-icons-round">people</span> Equipe</button>
+            <button class="nav-btn" data-view="reports"><span class="material-icons-round">assessment</span> Relatórios</button>
             <button class="nav-btn" data-view="profile"><span class="material-icons-round">badge</span> Meu Perfil</button>
             <button class="nav-btn" data-view="settings"><span class="material-icons-round">settings</span> Configurações</button>
             
@@ -120,6 +121,40 @@
                     <button id="btn-add-member" class="btn-primary" style="padding: 10px 20px; font-size: 0.9rem;">+ Adicionar Membro</button>
                 </header>
                 <div class="team-grid" id="team-grid-container"></div>
+            </section>
+
+            <section id="view-reports" class="admin-view">
+                <header class="header-dash">
+                    <h1>Inteligência de Fadiga</h1>
+                    <small style="color: var(--text-muted);">Análise de risco por colaborador e horário</small>
+                </header>
+
+                <div class="charts-grid" style="min-height: auto;">
+                    <div class="chart-box" style="flex: 1;">
+                        <div class="chart-header"><span class="chart-title">Ranking de Incidentes (Top 5)</span></div>
+                        <canvas id="rankingChart" style="max-height: 250px;"></canvas>
+                    </div>
+                </div>
+
+               <div class="logs-table-container">
+                    <div class="chart-header">
+                        <span class="chart-title">Mapa de Calor: Concentração de Fadiga</span><br>
+
+                        <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted); display:block; margin-top:2px;">
+                            (Olhos fechados e Cabeça baixa)
+                        </span>
+
+                        <div style="display:flex; align-items:center; gap:10px; margin-top:6px;">
+                            <span style="font-size:0.7rem; color:var(--text-muted);">MENOS</span>
+                            <div style="width:80px; height:6px; background:linear-gradient(90deg, rgba(255,255,255,0.05), var(--danger)); border-radius:4px;"></div>
+                            <span style="font-size:0.7rem; color:var(--text-muted);">MAIS</span>
+                        </div>
+                    </div>
+                    
+                    <div id="heatmap-container" class="heatmap-wrapper">
+                        <p style="text-align:center; color:var(--text-muted); padding:20px;">Carregando dados...</p>
+                    </div>
+                </div>
             </section>
 
             <section id="view-profile" class="admin-view">
