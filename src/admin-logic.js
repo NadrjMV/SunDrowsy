@@ -701,3 +701,80 @@ if(formCreateInvite) {
         }
     });
 }
+
+// --- LÓGICA DE EXPORTAÇÃO CSV ---
+
+const btnExportCsv = document.getElementById('btn-export-csv');
+
+if (btnExportCsv) {
+    btnExportCsv.addEventListener('click', () => {
+        exportLogsToCSV();
+    });
+}
+
+function exportLogsToCSV() {
+    // 1. Verifica se há dados
+    if (!globalRawLogs || globalRawLogs.length === 0) {
+        alert("Não há dados para exportar.");
+        return;
+    }
+
+    // 2. Aplica o filtro atual da tela (O mesmo do dropdown)
+    const selectedUser = userFilter.value;
+    let dataToExport = [];
+
+    if (selectedUser === 'ALL') {
+        dataToExport = [...globalRawLogs];
+    } else {
+        dataToExport = globalRawLogs.filter(log => log.uid === selectedUser);
+    }
+
+    // Ordena por data (mais recente primeiro)
+    dataToExport.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
+
+    // 3. Cabeçalho do CSV
+    const headers = ['DATA', 'HORA', 'NOME', 'CARGO', 'TIPO EVENTO', 'MOTIVO/DESCRIÇÃO', 'DETALHES EXTRAS'];
+    
+    // 4. Processa as linhas
+    const csvRows = dataToExport.map(log => {
+        const dateObj = log.timestamp.toDate();
+        const dateStr = dateObj.toLocaleDateString('pt-BR');
+        const timeStr = dateObj.toLocaleTimeString('pt-BR');
+        
+        // Trata campos de texto para evitar quebras no CSV (aspas e vírgulas)
+        const clean = (text) => {
+            if (!text) return "";
+            return `"${text.toString().replace(/"/g, '""')}"`; // Escapa aspas duplas
+        };
+
+        const userName = clean(log.userName || 'Desconhecido');
+        const role = clean(log.role || '--');
+        const type = clean(log.type);
+        const reason = clean(log.reason || log.description || ''); // Pega reason ou description (almoço)
+        
+        // Detalhes extras (como nível de fadiga)
+        let details = "";
+        if (log.fatigue_level) details = `Nível: ${log.fatigue_level}`;
+        details = clean(details);
+
+        return [dateStr, timeStr, userName, role, type, reason, details].join(',');
+    });
+
+    // 5. Monta o conteúdo final com BOM para UTF-8 (Acentos funcionarem no Excel)
+    const csvContent = '\uFEFF' + [headers.join(','), ...csvRows].join('\n');
+
+    // 6. Cria o arquivo e dispara o download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    // Nome do arquivo dinâmico
+    const today = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
+    const filterSuffix = selectedUser === 'ALL' ? 'Geral' : 'Filtrado';
+    link.setAttribute('href', url);
+    link.setAttribute('download', `SunDrowsy_Relatorio_${filterSuffix}_${today}.csv`);
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
