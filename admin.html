@@ -270,6 +270,35 @@
         </div>
     </div>
 
+    <div id="lgpd-modal" class="modal hidden" style="z-index: 9999;">
+        <div class="modal-content glass-panel" style="max-width: 600px; padding: 30px;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <span class="material-icons-round" style="font-size: 3rem; color: var(--safe);">verified_user</span>
+                <h2 style="color: #fff; margin: 10px 0;">Privacidade e Biometria</h2>
+                <p style="color: var(--text-muted); font-size: 0.9rem;">Adequação à Lei Geral de Proteção de Dados (LGPD)</p>
+            </div>
+
+            <div class="lgpd-text-scroll" style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 12px; height: 250px; overflow-y: auto; margin-bottom: 25px; border: 1px solid var(--glass-border); text-align: left;">
+                <h4 style="color: var(--primary); margin-top: 0;">1. Coleta de Dados Biométricos</h4>
+                <p>O sistema <strong>SunDrowsy</strong> utiliza a câmera do seu dispositivo para mapear pontos faciais (Face Mesh) em tempo real. Estes dados são processados localmente para calcular níveis de fadiga (EAR, MAR e Inclinação da Cabeça).</p>
+                
+                <h4 style="color: var(--primary);">2. Armazenamento e Logs</h4>
+                <p>As imagens de vídeo <strong>não são gravadas</strong> em nossos servidores. Apenas metadados de incidentes (ex: "Olho fechado por 3s") e snapshots de calibração são enviados ao banco de dados para fins de auditoria de segurança e relatórios gerenciais.</p>
+
+                <h4 style="color: var(--primary);">3. Finalidade</h4>
+                <p>O único propósito do tratamento destes dados é a <strong>prevenção de acidentes</strong> e monitoramento de segurança ocupacional. Seus dados não serão compartilhados com terceiros para fins comerciais.</p>
+
+                <h4 style="color: var(--primary);">4. Consentimento</h4>
+                <p>Ao clicar em "Aceitar e Continuar", você autoriza o tratamento dos seus dados biométricos e de navegação conforme descrito acima, ciente de que o monitoramento é condição para uso desta ferramenta de trabalho.</p>
+            </div>
+
+            <div style="display: flex; gap: 15px; justify-content: flex-end;">
+                <button id="btn-lgpd-decline" class="btn-secondary" style="border-color: var(--danger); color: var(--danger);">Recusar (Sair)</button>
+                <button id="btn-lgpd-accept" class="btn-primary">Li e Aceito os Termos</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="src/admin-logic.js"></script>
 </body>
 </html>

@@ -47,6 +47,10 @@ const profilePhotoInput = document.getElementById('profile-photo-input');
 const profileEmailReadonly = document.getElementById('profile-email-readonly');
 const profilePreviewImg = document.getElementById('profile-preview-img');
 
+// --- ELEMENTOS LGPD ---
+const lgpdModal = document.getElementById('lgpd-modal');
+const btnLgpdAccept = document.getElementById('btn-lgpd-accept');
+
 // Verifica se existe token na URL ao carregar
 const urlParams = new URLSearchParams(window.location.search);
 const inviteToken = urlParams.get('convite');
@@ -146,7 +150,8 @@ auth.onAuthStateChanged(async (user) => {
                     active: true,
                     invitedBy: inviteData.createdBy,
                     inviteUsed: tokenToUse,
-                    lastLogin: now
+                    lastLogin: now,
+                    lgpdAccepted: false // Novo usuário ainda não aceitou
                 };
                 
                 await userRef.set(newUserPayload);
@@ -160,41 +165,26 @@ auth.onAuthStateChanged(async (user) => {
                 sessionStorage.removeItem('sd_invite_token'); // Limpa para não reusar
             }
 
-            // --- UI PÓS-LOGIN ---
-            loginView.classList.remove('active');
-            loginView.classList.add('hidden');
-            appView.classList.remove('hidden');
-            setTimeout(() => appView.classList.add('active'), 100);
-
-            document.getElementById('user-name').innerText = user.displayName;
-            document.getElementById('user-photo').src = user.photoURL;
-            
-            // Sincroniza selects e textos
-            const roleSel = document.getElementById('role-selector');
-            const roleDisp = document.getElementById('user-role-display');
-            if (roleSel) roleSel.value = userRole;
-            if (roleDisp) roleDisp.innerText = userRole;
-
-            // Inicia Câmera e IA
-            initSystem(); 
-            if (detector) detector.setRole(userRole);
-
-            // Verifica Calibração e carrega do banco se existir
-            if (userData && userData.calibration && detector) {
-                console.log("☁️ Calibração carregada.");
-                const calib = userData.calibration;
+            // === LÓGICA LGPD ===
+            // Verifica se o usuário já aceitou os termos
+            if (!userData.lgpdAccepted) {
+                console.log("🔒 LGPD: Consentimento pendente.");
                 
-                // Carrega EAR e MAR
-                if (calib.EAR_THRESHOLD) detector.config.EAR_THRESHOLD = calib.EAR_THRESHOLD;
-                if (calib.MAR_THRESHOLD) detector.config.MAR_THRESHOLD = calib.MAR_THRESHOLD;
+                // 1. Mostra o Modal LGPD
+                lgpdModal.classList.remove('hidden');
+                setTimeout(() => lgpdModal.style.opacity = '1', 10);
                 
-                // Carrega HEAD RATIO (Novo)
-                if (calib.HEAD_RATIO_THRESHOLD) detector.config.HEAD_RATIO_THRESHOLD = calib.HEAD_RATIO_THRESHOLD;
+                // 2. Esconde o login mas NÃO mostra o App ainda
+                loginView.classList.add('hidden');
                 
-                detector.state.isCalibrated = true;
-            } else {
-                toggleModal(calibModal, true);
+                // 3. Configura os botões do modal para destravar o fluxo
+                setupLgpdEvents(user.uid);
+                
+                return;
             }
+
+            // Se chegou aqui, já tem aceite LGPD. Inicia o App normalmente.
+            startAppFlow(user, userRole, userData);
 
         } catch (error) {
             console.error("❌ ACESSO NEGADO:", error.message);
@@ -206,6 +196,10 @@ auth.onAuthStateChanged(async (user) => {
             loginView.classList.remove('hidden');
             setTimeout(() => loginView.classList.add('active'), 100);
             stopSystem();
+            
+            // Garante que modal LGPD suma no erro
+            lgpdModal.style.opacity = '0';
+            setTimeout(() => lgpdModal.classList.add('hidden'), 300);
         }
         
     } else {
@@ -214,9 +208,84 @@ auth.onAuthStateChanged(async (user) => {
         appView.classList.add('hidden');
         loginView.classList.remove('hidden');
         setTimeout(() => loginView.classList.add('active'), 100);
+        
+        // Garante que modal LGPD suma no logout
+        lgpdModal.style.opacity = '0';
+        setTimeout(() => lgpdModal.classList.add('hidden'), 300);
+        
         stopSystem();
     }
 });
+
+// --- FUNÇÕES AUXILIARES LGPD ---
+
+function setupLgpdEvents(uid) {
+    // Botão Aceitar
+    btnLgpdAccept.onclick = async () => {
+        const btn = btnLgpdAccept;
+        const originalText = btn.innerText;
+        btn.disabled = true;
+        btn.innerText = "Salvando...";
+
+        try {
+            // Salva no Firestore
+            await db.collection('users').doc(uid).update({
+                lgpdAccepted: true,
+                lgpdAcceptedAt: new Date(),
+                lgpdVersion: '1.0'
+            });
+
+            // Fecha Modal
+            lgpdModal.style.opacity = '0';
+            setTimeout(() => lgpdModal.classList.add('hidden'), 300);
+
+            // Recarrega a página para pegar o fluxo limpo ou chama a função de inicio
+            const userDoc = await db.collection('users').doc(uid).get();
+            const userData = userDoc.data();
+            startAppFlow(auth.currentUser, userData.role, userData);
+
+        } catch (error) {
+            console.error("Erro ao salvar LGPD:", error);
+            alert("Erro ao salvar consentimento. Tente novamente.");
+            btn.disabled = false;
+            btn.innerText = originalText;
+        }
+    };
+    // Botão Recusar removido
+}
+
+// Função para iniciar o app (isolada para ser chamada no login direto OU após aceite LGPD)
+function startAppFlow(user, userRole, userData) {
+    // UI Pós-Login
+    loginView.classList.remove('active');
+    loginView.classList.add('hidden');
+    appView.classList.remove('hidden');
+    setTimeout(() => appView.classList.add('active'), 100);
+
+    document.getElementById('user-name').innerText = user.displayName;
+    document.getElementById('user-photo').src = user.photoURL;
+    
+    const roleSel = document.getElementById('role-selector');
+    const roleDisp = document.getElementById('user-role-display');
+    if (roleSel) roleSel.value = userRole;
+    if (roleDisp) roleDisp.innerText = userRole;
+
+    // Inicia Sistema
+    initSystem(); 
+    if (detector) detector.setRole(userRole);
+
+    // Carrega calibração
+    if (userData && userData.calibration && detector) {
+        console.log("☁️ Calibração carregada.");
+        const calib = userData.calibration;
+        if (calib.EAR_THRESHOLD) detector.config.EAR_THRESHOLD = calib.EAR_THRESHOLD;
+        if (calib.MAR_THRESHOLD) detector.config.MAR_THRESHOLD = calib.MAR_THRESHOLD;
+        if (calib.HEAD_RATIO_THRESHOLD) detector.config.HEAD_RATIO_THRESHOLD = calib.HEAD_RATIO_THRESHOLD;
+        detector.state.isCalibrated = true;
+    } else {
+        toggleModal(calibModal, true);
+    }
+}
 
 // --- HELPER MODAL ---
 function toggleModal(modal, show) {
