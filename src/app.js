@@ -8,6 +8,7 @@ let currentLeftEAR = 0;
 let currentRightEAR = 0;
 let currentMAR = 0;
 let currentHeadRatio = 0; // Nova variável para cabeça
+let isCalibrating = false;
 
 let lastUiUpdate = 0;
 
@@ -459,7 +460,7 @@ function onResults(results) {
         currentPitch = calculatePitchRatio(landmarks); // Seu novo cálculo
 
         // Envia para a lógica de detecção
-        if (detector) {
+        if (detector && !isCalibrating) {
             detector.processDetection(currentLeftEAR, currentRightEAR, currentMAR);
             detector.processHeadTilt(currentHeadRatio, currentPitch);
         }
@@ -545,67 +546,63 @@ btnStartCalib.addEventListener('click', async () => {
     // 1. Acorda o contexto de áudio
     if (audioMgr && audioMgr.audioContext) audioMgr.audioContext.resume();
     
+    // --- BLOQUEIO DE SEGURANÇA ---
+    isCalibrating = true; // Impede que o sistema apite durante o processo
+    if (detector) detector.stopAlarm(); // Para qualquer alarme que esteja tocando agora
+    detector.updateUI("CALIBRANDO..."); // Muda o status na tela
+    // -----------------------------
+
     btnStartCalib.disabled = true;
 
-    // 2. TOCA O ÁUDIO COMPLETO AGORA (UMA VEZ SÓ)
-    // Certifique-se que o nome do arquivo é calib_full.mp3
+    // 2. TOCA O ÁUDIO COMPLETO
     const fullAudio = new Audio('assets/calibracao.mp3');
     fullAudio.volume = 1.0;
     fullAudio.play().catch(e => {
         console.error("Erro ao tocar áudio completo:", e);
-        alert("Erro: Arquivo 'assets/calib_full.mp3' não encontrado.");
+        alert("Erro: Verifique se 'assets/calibracao.mp3' existe.");
     });
 
     // Variáveis de captura
     let avgOpenEAR = 0, avgClosedEAR = 0, avgYawnMAR = 0, avgHeadRatio = 0;
 
-    // --- FASE 1: INTRODUÇÃO (00:00 até 00:09) ---
-    // O áudio está falando: "Bem vindo... sente-se..."
+    // --- FASE 1: INTRODUÇÃO ---
     calibText.innerText = "Bem-vindo. Sente-se confortavelmente e olhe para frente.";
     calibProgress.style.width = "10%";
     
-    // Espera 9 segundos (Tempo da intro no áudio)
     await new Promise(r => setTimeout(r, 9000)); 
 
-    // --- FASE 2: OLHOS ABERTOS (00:09 até 00:16) ---
-    // O áudio continua falando: "Mantenha os olhos abertos..."
+    // --- FASE 2: OLHOS ABERTOS ---
     calibText.innerText = "Mantenha os olhos ABERTOS e a CABEÇA RETA.";
     calibProgress.style.width = "30%";
     
-    // Espera 7 segundos (Tempo da instrução no áudio)
     await new Promise(r => setTimeout(r, 7000));
 
-    // CAPTURA NEUTRA (Momento exato)
+    // CAPTURA NEUTRA
     avgOpenEAR = (currentLeftEAR + currentRightEAR) / 2;
     avgHeadRatio = currentHeadRatio;
     console.log("✅ Passo 1 (Neutro) Capturado");
 
-    // --- FASE 3: OLHOS FECHADOS (00:16 até 00:24) ---
-    // O áudio continua: "Agora feche os olhos..."
+    // --- FASE 3: OLHOS FECHADOS ---
     calibText.innerText = "Mantenha os olhos FECHADOS...";
     calibProgress.style.width = "60%";
 
-    // Espera 8 segundos (Tempo da instrução no áudio)
     await new Promise(r => setTimeout(r, 8000));
     
     // CAPTURA FECHADO
     avgClosedEAR = (currentLeftEAR + currentRightEAR) / 2;
     console.log("✅ Passo 2 (Fechado) Capturado");
 
-    // --- FASE 4: BOCEJO (00:24 até 00:31) ---
-    // O áudio continua: "Agora abra a boca..."
+    // --- FASE 4: BOCEJO ---
     calibText.innerText = "ABRA A BOCA (Simule um bocejo)...";
     calibProgress.style.width = "85%";
 
-    // Espera 7 segundos (Tempo da instrução no áudio)
     await new Promise(r => setTimeout(r, 8200));
     
     // CAPTURA BOCEJO
     avgYawnMAR = currentMAR;
     console.log("✅ Passo 3 (Bocejo) Capturado");
 
-    // --- FASE 5: FINALIZAÇÃO (00:31 até o Fim) ---
-    // O áudio diz: "Calibração concluída..."
+    // --- FASE 5: FINALIZAÇÃO ---
     if(detector) {
         detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR, avgHeadRatio);
     }
@@ -613,14 +610,17 @@ btnStartCalib.addEventListener('click', async () => {
     calibText.innerText = "Calibração Concluída com Sucesso!";
     calibProgress.style.width = "100%";
     
-    // Espera 4.5 segundos finais para o áudio terminar de falar
     await new Promise(r => setTimeout(r, 4500));
     
-    // Fecha tudo
+    // Fecha tudo e LIBERA O SISTEMA
     toggleModal(calibModal, false);
     btnStartCalib.disabled = false;
     calibText.innerText = "Sente-se confortavelmente e olhe para frente.";
     calibProgress.style.width = "0%";
+    
+    // --- LIBERA O DETECTOR ---
+    isCalibrating = false; // Agora o sistema volta a vigiar
+    if(detector) detector.updateUI("SISTEMA ATIVO");
 });
 
 // --- LÓGICA DO ALMOÇO (1x POR DIA + LOGS + LOCK SCREEN) ---
