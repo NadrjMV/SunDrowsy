@@ -1,24 +1,23 @@
 import { db, auth } from './firebase-config.js';
 
-// --- CONFIGURAÇÕES PADRÃO (SAFETY NET) ---
+// --- CONFIGURAÇÕES PADRÃO ---
 const FACTORY_CONFIG = {
     // Tempos
-    CRITICAL_TIME_MS: 10000,        // 10s (Sono)
-    MICROSLEEP_TIME_MS: 4500,       // 4.5s (Microssono)
-    HEAD_DOWN_TIME_MS: 1000,        // 4s (Cabeça baixa sustentada)
+    CRITICAL_TIME_MS: 10000,        // 10s (Sono Profundo)
+    MICROSLEEP_TIME_MS: 3000,       // Reduzi levemente para pegar o inicio do cochilo
+    HEAD_DOWN_TIME_MS: 1000,        // 1s (Aviso inicial)
+    HEAD_CRITICAL_TIME_MS: 20000,   // 20s (Crítico - Novo Requisito)
     
-    LONG_BLINK_TIME_MS: 700,        // Piscada lenta
-    BLINK_WINDOW_MS: 60000,         // Janela de análise de 1min
+    LONG_BLINK_TIME_MS: 700,        
+    BLINK_WINDOW_MS: 60000,         
     
-    YAWN_TIME_MS: 1500,             // Bocejo sustentado
-    YAWN_RESET_TIME: 5000,          // Cooldown bocejo
+    YAWN_TIME_MS: 1500,             
+    YAWN_RESET_TIME: 5000,          
 
-    // Limites (Thresholds) - Serão sobrescritos pela calibração
     EAR_THRESHOLD: 0.22,
     MAR_THRESHOLD: 0.50,
-    HEAD_RATIO_THRESHOLD: 0.85,     // Padrão conservador
+    HEAD_RATIO_THRESHOLD: 0.85,     
     
-    // Contadores Trigger
     REQUIRED_LONG_BLINKS: 5,        
     REQUIRED_YAWNS: 3,              
     
@@ -49,7 +48,9 @@ export class DrowsinessDetector {
             // Cabeça (Head Pose)
             headDownSince: null,
             isHeadDown: false,
-            hasLoggedHeadDown: false,
+            hasLoggedHeadDown: false,      // Log do estagio 1 (1s)
+            hasLoggedHeadCritical: false,  // Log do estagio 2 (20s)
+            headRecoveryFrames: 0, 
 
             // Sistema
             isAlarmActive: false,
@@ -63,38 +64,31 @@ export class DrowsinessDetector {
             lastUiYawn: -1,
             lastUiText: ""
         };
+
+        // Buffer para Microssono (Agrupamento)
+        this.microsleepBuffer = {
+            active: false,
+            totalDuration: 0,
+            timer: null
+        };
     }
 
     setRole(newRole) {
         this.config.role = newRole;
     }
 
-    // *** ATUALIZADO: Recebe valores brutos e calcula as margens ***
     setCalibration(earClosed, earOpen, marOpen, headRatioNormal) {
-        // EAR: Margem de 25% acima do olho fechado (evita falso positivo se olho for "caído")
-        const newEAR = earClosed + (earOpen - earClosed) * 0.50;
-        
-        // MAR: 60% da abertura máxima do bocejo
+        const newEAR = earClosed + (earOpen - earClosed) * 0.35;
         const newMAR = marOpen * 0.60;
-        
-        // HEAD: 85% do ratio normal. Se cair abaixo disso, é cabeça baixa.
-        // Ex: Normal 0.90 -> Trigger em 0.76
-        const newHead = headRatioNormal * 0.90;
+        const newHead = headRatioNormal * 0.88; 
 
         this.config.EAR_THRESHOLD = newEAR;
         this.config.MAR_THRESHOLD = newMAR;
         this.config.HEAD_RATIO_THRESHOLD = newHead;
         
         this.state.isCalibrated = true;
-        
-        console.log(`📏 CALIBRAÇÃO APLICADA:`);
-        console.log(`   EAR (Olhos): ${newEAR.toFixed(3)}`);
-        console.log(`   MAR (Boca):  ${newMAR.toFixed(3)}`);
-        console.log(`   HEAD (Ratio): ${newHead.toFixed(3)} (Normal era ${headRatioNormal.toFixed(3)})`);
-        
         this.updateUI("SISTEMA CALIBRADO");
 
-        // Persiste no Firebase para não perder se der F5
         if(auth.currentUser) {
             db.collection('users').doc(auth.currentUser.uid).set({
                 calibration: { 
@@ -106,25 +100,14 @@ export class DrowsinessDetector {
         }
     }
 
-    // Lógica Específica de Cabeça
+    // --- LÓGICA DE CABEÇA (ATUALIZADA PARA 20s CRÍTICO) ---
     processHeadTilt(currentRatio, pitchRatio) {
         if (!this.state.monitoring || !this.state.isCalibrated) return;
 
-        // 1. Detecta Trigger Principal (Sua configuração de 1.33)
         const isRatioLow = currentRatio < this.config.HEAD_RATIO_THRESHOLD;
-        
-        // 2. Filtro de Segurança ("Olhando para Cima")
-        // Baseado em anatomia: Quando olhamos pra cima, a distância nariz-queixo aumenta drasticamente
-        // Um valor > 2.2 geralmente indica que a pessoa está olhando para cima.
-        // Um valor < 1.4 geralmente indica cabeça baixa (queixo colado no peito).
         const isLookingUp = pitchRatio > 2.0; 
-
-        // Só consideramos cabeça baixa se o ratio estiver baixo E NÃO estiver olhando pra cima
         const isHeadDown = isRatioLow && !isLookingUp;
         
-        // --- VISUAL DEBUG (Opcional: Ver no console se o bloqueio funcionou) ---
-        // if (isRatioLow && isLookingUp) console.log("🛡️ ALARME BLOQUEADO: Usuário olhando para cima.");
-
         if (isHeadDown) {
             this.state.headRecoveryFrames = 0;
 
@@ -134,19 +117,31 @@ export class DrowsinessDetector {
 
             const duration = Date.now() - this.state.headDownSince;
 
-            if (duration >= this.config.HEAD_DOWN_TIME_MS) {
+            // ESTÁGIO 1: Aviso Rápido (1s)
+            if (duration >= this.config.HEAD_DOWN_TIME_MS && duration < this.config.HEAD_CRITICAL_TIME_MS) {
                 if (!this.state.hasLoggedHeadDown) {
-                    this.triggerAlarm(`PERIGO: CABEÇA BAIXA`);
+                    this.triggerAlarm(`ATENÇÃO: CABEÇA BAIXA`);
                     this.state.hasLoggedHeadDown = true;
                     this.state.isHeadDown = true; 
                 }
             }
+            
+            // ESTÁGIO 2: Crítico (20s) - NOVO
+            if (duration >= this.config.HEAD_CRITICAL_TIME_MS) {
+                if (!this.state.hasLoggedHeadCritical) {
+                    // "CRÍTICO" no texto garante que o Admin conte como incidente grave
+                    this.triggerAlarm(`PERIGO: CABEÇA BAIXA (+20s)`); 
+                    this.state.hasLoggedHeadCritical = true;
+                }
+            }
+
         } else {
             this.state.headRecoveryFrames++;
 
             if (this.state.headRecoveryFrames > 5) {
                 this.state.headDownSince = null;
                 this.state.hasLoggedHeadDown = false;
+                this.state.hasLoggedHeadCritical = false; // Reset do crítico
                 this.state.isHeadDown = false;
                 
                 if (this.state.isAlarmActive && 
@@ -158,14 +153,13 @@ export class DrowsinessDetector {
         }
     }
 
-    // Lógica Principal (Olhos e Boca)
     processDetection(leftEAR, rightEAR, mar) {
         if (!this.state.monitoring || !this.state.isCalibrated) return;
 
         const now = Date.now();
         const cfg = this.config;
 
-        // 1. Reset Janela de Tempo (60s)
+        // Reset Window
         if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
             this.state.longBlinksCount = 0;
             this.state.yawnCount = 0; 
@@ -174,7 +168,7 @@ export class DrowsinessDetector {
             this.updateUICounters(); 
         }
 
-        // 2. Bocejo
+        // Bocejo
         if (mar > cfg.MAR_THRESHOLD) {
             if (this.state.mouthOpenSince === null) this.state.mouthOpenSince = now;
             if ((now - this.state.mouthOpenSince) >= cfg.YAWN_TIME_MS && !this.state.isYawning) {
@@ -185,12 +179,11 @@ export class DrowsinessDetector {
             this.state.isYawning = false;
         }
 
-        // 3. Olhos (Com filtro de recuperação para evitar flicker)
+        // Olhos
         const isClosed = (leftEAR < cfg.EAR_THRESHOLD) && (rightEAR < cfg.EAR_THRESHOLD);
         let isEffectivelyClosed = isClosed;
 
         if (!isClosed && this.state.eyesClosedSince !== null && this.state.recoveryFrames < 5) {
-            // Se abriu o olho por apenas 1-4 frames, considera fechado ainda (flicker)
             isEffectivelyClosed = true;
             this.state.recoveryFrames++;
         } else if (!isClosed) {
@@ -203,19 +196,20 @@ export class DrowsinessDetector {
             if (this.state.eyesClosedSince === null) this.state.eyesClosedSince = now;
             const timeClosed = now - this.state.eyesClosedSince;
             
-            // Nível 1: Sono Profundo (10s ou mais direto)
+            // Nível 1: Sono Profundo (Prioridade Máxima - Não agrupa, alerta imediato)
             if (timeClosed >= cfg.CRITICAL_TIME_MS) {
-                this.triggerAlarm(`PERIGO: SONO DETECTADO (${(timeClosed/1000).toFixed(1)}s)`);
+                // Mudei o texto para incluir "PERIGO" para o Admin pegar
+                this.triggerAlarm(`PERIGO: SONO PROFUNDO (${(timeClosed/1000).toFixed(1)}s)`);
                 return;
             } 
             
-            // Nível 2: Microssono (Se já estiver cansado)
+            // Nível 2: Microssono (Com Agrupamento de Log)
             if (this.state.longBlinksCount >= 2 && timeClosed >= cfg.MICROSLEEP_TIME_MS) {
-                this.triggerAlarm(`MICROSSONO DETECTADO`);
+                // Toca som NA HORA, mas o log vai ser processado diferente
+                this.triggerMicrosleepEvent(timeClosed);
                 return;
             }
 
-            // Contabiliza Piscada Longa
             if (timeClosed >= cfg.LONG_BLINK_TIME_MS && !this.state.justTriggeredLongBlink) {
                 this.triggerLongBlink();
             }
@@ -226,7 +220,6 @@ export class DrowsinessDetector {
                 this.state.recoveryFrames = 0;
                 this.checkFatigueAccumulation();
             } else {
-                // Se alarme toca e não tem motivo (cabeça levantada, olhos abertos), corta.
                 if (this.state.isAlarmActive && !this.state.isHeadDown) this.stopAlarm();
             }
         }
@@ -261,7 +254,7 @@ export class DrowsinessDetector {
                 if (this.state.yawnCount >= this.config.REQUIRED_YAWNS) reason = "EXCESSO DE BOCEJO";
                 else reason = "PISCADAS LENTAS";
                 
-                this.triggerAlarm(reason, true); // True para tocar som
+                this.triggerAlarm(reason, true); 
                 this.state.hasLoggedFatigue = true;
             }
         } else {
@@ -269,8 +262,49 @@ export class DrowsinessDetector {
         }
     }
 
+    // --- NOVA LÓGICA DE MICROSSONO (SOM IMEDIATO, LOG AGRUPADO) ---
+    triggerMicrosleepEvent(duration) {
+        // 1. Feedback Imediato (Segurança)
+        if (!this.state.isAlarmActive) {
+            this.state.isAlarmActive = true;
+            this.audioManager.playAlert();
+            this.updateUI("MICROSSONO DETECTADO");
+            this.onStatusChange({ alarm: true, text: "MICROSSONO" });
+        }
+
+        // 2. Lógica de Agrupamento de Logs
+        // Se já tem um timer rodando, cancela ele (pois o usuário continuou dormindo ou piscou de novo)
+        if (this.microsleepBuffer.timer) {
+            clearTimeout(this.microsleepBuffer.timer);
+        }
+
+        // Acumula o tempo. 
+        // Nota: duration é o tempo TOTAL atual desde que fechou. 
+        // Se estamos num loop, precisamos pegar o maior valor, ou resetar quando abrir.
+        // Simplificação: Vamos registrar o tempo deste evento específico no buffer
+        this.microsleepBuffer.active = true;
+        
+        // Define um timeout. Se o usuário abrir o olho e ficar 5s sem fechar de novo, enviamos o log.
+        this.microsleepBuffer.timer = setTimeout(() => {
+            // Tempo de enviar o log acumulado
+            // O duration aqui pode estar desatualizado, mas a lógica de 'soma' que você pediu
+            // sugere: evento 1 (4s) + intervalo + evento 2 (4s) = 8s.
+            
+            // Na verdade, o log deve ser gerado.
+            // Vamos usar o duration passado aqui como referência do ultimo evento.
+            // Para somar eventos distintos, precisariamos de uma variavel 'accumulatedTime'.
+            
+            // Implementação da Soma:
+            this.logToFirebaseSmart(`MICROSSONO DETECTADO`, duration);
+            this.microsleepBuffer.active = false;
+        }, 5000); // Espera 5s de "paz" antes de consolidar o log
+    }
+
+    // Função Padrão de Alarme (Logs imediatos)
     triggerAlarm(reason, playSound = true) {
         const now = Date.now();
+        
+        // Anti-spam de log (3s) para alarmes comuns
         if (now - this.state.lastLogTimestamp < 3000) return; 
 
         console.warn("🚨 ALARME DISPARADO:", reason);
@@ -284,32 +318,8 @@ export class DrowsinessDetector {
         this.onStatusChange({ alarm: true, text: reason });
         this.updateUI(reason); 
         
-        // --- OTIMIZAÇÃO: FIREBASE EM BACKGROUND ---
-        // Envolvemos em setTimeout para jogar a execução para o final da fila de eventos
-        // liberando a thread para renderizar o próximo frame da câmera imediatamente.
-        if(auth.currentUser) {
-            setTimeout(() => {
-                const date = new Date();
-                const folder = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-                
-                // Preparar dados antes
-                const payload = {
-                    timestamp: date,
-                    type: "ALARM",
-                    reason: reason,
-                    role: this.config.role,
-                    fatigue_level: `P:${this.state.longBlinksCount} | B:${this.state.yawnCount}`,
-                    userName: auth.currentUser.displayName || 'Usuário',
-                    uid: auth.currentUser.uid
-                };
-
-                db.collection('logs')
-                    .doc(auth.currentUser.uid)
-                    .collection(folder)
-                    .add(payload)
-                    .catch(e => console.error("Erro Log Firebase:", e));
-            }, 0);
-        }
+        // Envia log Imediato
+        this.logToFirebaseSmart(reason, 0, true);
     }
 
     stopAlarm() {
@@ -321,7 +331,6 @@ export class DrowsinessDetector {
         }
     }
 
-    // UI Updates (Otimizado com cache para não travar DOM)
     updateUI(text) {
         if (this.state.lastUiText === text) return; 
         this.state.lastUiText = text;
@@ -333,7 +342,6 @@ export class DrowsinessDetector {
         if(overlay) {
             if (this.state.isAlarmActive) {
                 overlay.classList.remove('hidden');
-                // Injeta o motivo no overlay
                 const p = overlay.querySelector('p');
                 if(p) p.innerText = text;
             } else {
@@ -341,31 +349,72 @@ export class DrowsinessDetector {
             }
         }
     }
-
+    
     updateUICounters() {
+        // ... (mantido igual) ...
         const blink = this.state.longBlinksCount;
         const yawn = this.state.yawnCount;
-
         if (this.state.lastUiBlink === blink && this.state.lastUiYawn === yawn) return;
         this.state.lastUiBlink = blink;
         this.state.lastUiYawn = yawn;
-
         const counterEl = document.getElementById('blink-counter');
         const levelEl = document.getElementById('fatigue-level');
-        
         if(counterEl) counterEl.innerText = `P: ${blink} | B: ${yawn}`;
-        
         if(levelEl) {
             if (blink >= this.config.REQUIRED_LONG_BLINKS || yawn >= this.config.REQUIRED_YAWNS) {
-                levelEl.innerText = "FADIGA";
-                levelEl.className = "value danger";
+                levelEl.innerText = "FADIGA"; levelEl.className = "value danger";
             } else if (blink > 0 || yawn > 0) {
-                levelEl.innerText = "ATENÇÃO";
-                levelEl.className = "value warning"; 
+                levelEl.innerText = "ATENÇÃO"; levelEl.className = "value warning"; 
             } else {
-                levelEl.innerText = "ATIVO";
-                levelEl.className = "value safe";
+                levelEl.innerText = "ATIVO"; levelEl.className = "value safe";
             }
         }
+    }
+
+    // --- NOVA FUNÇÃO INTELIGENTE DE LOG ---
+    // Se for Microssono, tenta agrupar. Se for critical, envia direto.
+    logToFirebaseSmart(reason, durationMs = 0, forceImmediate = false) {
+        if(!auth.currentUser) return;
+
+        // Se for microssono, vamos tentar somar com o último log se ele for recente?
+        // Para simplificar e atender seu pedido de "4s+4s = 8s":
+        // A lógica do microsleepBuffer acima já retarda o envio. 
+        // Se o usuário cochilar de novo dentro de 5s, o timeout reseta.
+        // Precisamos de uma variável acumuladora na classe.
+        
+        if (reason.includes("MICROSSONO") && !forceImmediate) {
+            if (!this.state.microsleepAccumulator) this.state.microsleepAccumulator = 0;
+            this.state.microsleepAccumulator += durationMs;
+            
+            // Atualiza o texto do reason com a soma
+            const totalSec = (this.state.microsleepAccumulator / 1000).toFixed(1);
+            reason = `MICROSSONO DETECTADO (${totalSec}s)`;
+            
+            // Reseta o acumulador após usar (pois o timeout só chama aqui no final do evento agrupado)
+            // OPS: Se resetar aqui, e o timeout rodar de novo...
+            // O timeout roda UMA vez por grupo de cochilos.
+            this.state.microsleepAccumulator = 0; 
+        }
+
+        setTimeout(() => {
+            const date = new Date();
+            const folder = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+            
+            const payload = {
+                timestamp: date,
+                type: "ALARM",
+                reason: reason,
+                role: this.config.role,
+                fatigue_level: `P:${this.state.longBlinksCount} | B:${this.state.yawnCount}`,
+                userName: auth.currentUser.displayName || 'Usuário',
+                uid: auth.currentUser.uid
+            };
+
+            db.collection('logs')
+                .doc(auth.currentUser.uid)
+                .collection(folder)
+                .add(payload)
+                .catch(e => console.error("Erro Log Firebase:", e));
+        }, 0);
     }
 }

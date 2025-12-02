@@ -47,6 +47,8 @@ let tooltipEl = null;
 
 let currentUserRole = 'USER';
 
+window.destroyerMode = false;
+
 // --- AUTH & INIT ---
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
@@ -303,8 +305,16 @@ function processLogs(logs) {
     // Ordena logs crus para processamento
     logs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 
-    // --- 1. CÁLCULO DE KPIs ---
-    const criticalAlerts = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('SONO PROFUNDO')).length;
+    // --- 1. CÁLCULO DE KPIs (CORRIGIDO) ---
+    // Agora conta como crítico qualquer log que contenha "PERIGO", "CRÍTICO" ou "SONO PROFUNDO"
+    const criticalAlerts = logs.filter(l => 
+        l.type === 'ALARM' && l.reason && (
+            l.reason.includes('SONO PROFUNDO') || 
+            l.reason.includes('PERIGO') || 
+            l.reason.includes('CRÍTICO')
+        )
+    ).length;
+
     const microSleeps = logs.filter(l => l.type === 'ALARM' && l.reason && l.reason.includes('MICROSSONO')).length;
     const lunches = logs.filter(l => l.type === 'LUNCH_START').length;
 
@@ -498,36 +508,46 @@ window.openHeatmapDetails = function(uid, name, hour) {
 
     // B. Popula o Header
     const hourStr = String(hour).padStart(2, '0');
-    hmTitle.innerText = `Incidentes: ${name}`;
-    hmSubtitle.innerText = `Horário: ${hourStr}:00 às ${hourStr}:59 • Total: ${filtered.length} ocorrências`;
+    if(hmTitle) hmTitle.innerText = `Incidentes: ${name}`;
+    if(hmSubtitle) hmSubtitle.innerText = `Horário: ${hourStr}:00 às ${hourStr}:59 • Total: ${filtered.length} ocorrências`;
 
     // C. Gera a Lista HTML
-    hmList.innerHTML = '';
-    
-    // Ordena por minuto/segundo
-    filtered.sort((a, b) => a.timestamp.seconds - b.timestamp.seconds);
-
-    filtered.forEach(log => {
-        const date = log.timestamp.toDate();
-        const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    if(hmList) {
+        hmList.innerHTML = '';
         
-        const item = document.createElement('div');
-        item.className = 'log-item-card';
-        item.innerHTML = `
-            <div style="display:flex; align-items:center;">
-                <span class="material-icons-round log-type-icon">warning</span>
-                <div>
-                    <div class="log-reason">${log.reason}</div>
-                    <small style="color:var(--text-muted); font-size:0.75rem;">Fadiga: ${log.fatigue_level || 'N/A'}</small>
-                </div>
-            </div>
-            <div class="log-time">${timeStr}</div>
-        `;
-        hmList.appendChild(item);
-    });
+        // Ordena por minuto/segundo
+        filtered.sort((a, b) => a.timestamp.seconds - b.timestamp.seconds);
 
-    // D. Abre o Modal
-    hmModal.classList.remove('hidden');
+        filtered.forEach(log => {
+            const date = log.timestamp.toDate();
+            const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            
+            const item = document.createElement('div');
+            item.className = 'log-item-card';
+            item.innerHTML = `
+                <div style="display:flex; align-items:center;">
+                    <span class="material-icons-round log-type-icon">warning</span>
+                    <div>
+                        <div class="log-reason">${log.reason}</div>
+                        <small style="color:var(--text-muted); font-size:0.75rem;">Fadiga: ${log.fatigue_level || 'N/A'}</small>
+                    </div>
+                </div>
+                <div class="log-time">${timeStr}</div>
+            `;
+            hmList.appendChild(item);
+        });
+    }
+
+    // D. Abre o Modal (CORREÇÃO AQUI)
+    if(hmModal) {
+        hmModal.classList.remove('hidden');
+        
+        // Força o navegador a "redesenhar" a opacidade para 1
+        // Sem isso, ele herda o 'opacity: 0' do fechamento anterior
+        requestAnimationFrame(() => {
+            hmModal.style.opacity = '1';
+        });
+    }
 };
 
 // Funções de Tooltip (Mantidas)
@@ -695,7 +715,7 @@ function renderGroupedTable(logs) {
     
     // Header fixo (Adicionando coluna Ações se for OWNER)
     const tableHeader = document.querySelector('.logs-table-container thead tr');
-    const isOwner = (currentUserRole === 'OWNER');
+    const isOwner = (currentUserRole === 'OWNER' && window.destroyerMode === true);
 
     if(tableHeader) {
         tableHeader.innerHTML = `
@@ -1153,6 +1173,32 @@ function exportLogsToCSV() {
     link.click();
     document.body.removeChild(link);
 }
+
+// --- CHEAT CODE (MODO DESTRUIDOR) ---
+window.enableDestroyerMode = function() {
+    // 1. Ativa a flag global
+    window.destroyerMode = true;
+    
+    // 2. Mostra o Botão Mestre
+    const btnWipe = document.getElementById('btn-wipe-logs');
+    if(btnWipe) {
+        btnWipe.style.display = 'inline-flex';
+        btnWipe.disabled = false;
+        btnWipe.style.opacity = '1';
+        btnWipe.style.cursor = 'pointer';
+    }
+
+    // 3. Re-renderiza a tabela para mostrar as lixeirinhas individuais
+    // (Usa a variável globalRawLogs que já está na memória)
+    if(typeof filterAndRenderLogs === 'function') {
+        filterAndRenderLogs();
+    } else {
+        // Fallback se a função de filtro não estiver acessível
+        renderGroupedTable(mergeLunchEvents(globalRawLogs));
+    }
+
+    console.log("🔓 MODO DESTRUIDOR ATIVADO: Tenha cuidado.");
+};
 
 // --- FECHAMENTO GLOBAL DE MODAIS (ESC & CLIQUE FORA) ---
 
