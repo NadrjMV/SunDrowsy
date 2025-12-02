@@ -747,3 +747,35 @@ select option { background-color: #1a1a1e; color: #fff; padding: 12px; }
     line-height: 1.4;
 }
 .heatmap-tooltip strong { color: var(--primary); }
+
+/* --- ITEM DE LOG NO MODAL HEATMAP --- */
+.log-item-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: background 0.2s;
+}
+.log-item-card:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+.log-time {
+    font-family: monospace;
+    color: var(--primary);
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+.log-reason {
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+.log-type-icon {
+    font-size: 1.2rem;
+    color: var(--danger);
+    margin-right: 10px;
+    vertical-align: middle;
+}

@@ -125,20 +125,20 @@
 
             <section id="view-reports" class="admin-view">
                 <header class="header-dash">
-                    <h1>Inteligência de Fadiga</h1>
+                    <h1>Relatório geral de fadigas</h1>
                     <small style="color: var(--text-muted);">Análise de risco por colaborador e horário</small>
                 </header>
 
                 <div class="charts-grid" style="min-height: auto;">
                     <div class="chart-box" style="flex: 1;">
-                        <div class="chart-header"><span class="chart-title">Ranking de Incidentes (Top 5)</span></div>
+                        <div class="chart-header"><span class="chart-title">Ranking (Top 5)</span></div>
                         <canvas id="rankingChart" style="max-height: 250px;"></canvas>
                     </div>
                 </div>
 
                <div class="logs-table-container">
                     <div class="chart-header">
-                        <span class="chart-title">Mapa de Calor: Concentração de Fadiga</span><br>
+                        <span class="chart-title">Mapa de Calor</span><br>
 
                         <span style="font-size:0.75rem; font-weight:400; color:var(--text-muted); display:block; margin-top:2px;">
                             (Olhos fechados e Cabeça baixa)
@@ -242,6 +242,26 @@
             <label style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Mensagem Pronta (WhatsApp)</label>
             <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; font-size: 0.85rem; color: #ddd; white-space: pre-wrap; margin-bottom: 15px; border: 1px solid var(--glass-border);" id="result-message"></div>
             <div style="display: flex; gap: 10px;"><button class="btn-primary" id="btn-copy-msg" style="flex: 1; justify-content: center;">Copiar Mensagem</button><button class="btn-secondary" id="btn-share-wpp" style="flex: 1; justify-content: center; background: #25D366; color: white; border: none;">WhatsApp Web</button></div>
+        </div>
+    </div>
+
+    <div id="heatmap-details-modal" class="modal hidden">
+        <div class="modal-content glass-panel" style="width: 500px; max-height: 80vh; display: flex; flex-direction: column; padding: 0;">
+            
+            <div style="padding: 20px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
+                <div>
+                    <h3 id="hm-modal-title" style="margin: 0; color: #fff;">Detalhes</h3>
+                    <small id="hm-modal-subtitle" style="color: var(--text-muted);">--</small>
+                </div>
+                <span class="close-btn" id="close-hm-modal" style="cursor: pointer; color: #fff; font-size: 1.5rem;">&times;</span>
+            </div>
+
+            <div id="hm-logs-list" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
+                </div>
+
+            <div style="padding: 20px; border-top: 1px solid var(--glass-border); text-align: right;">
+                <button class="btn-secondary" id="btn-close-hm-footer">Fechar</button>
+            </div>
         </div>
     </div>
 

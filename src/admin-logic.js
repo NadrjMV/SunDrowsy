@@ -343,7 +343,7 @@ function renderReports(logs) {
 
     const sortedUsers = Object.values(userStats).sort((a, b) => b.count - a.count);
 
-    // --- GRÁFICO RANKING (MANTIDO IGUAL) ---
+    // --- GRÁFICO RANKING (CORRIGIDO: NOMES VISÍVEIS) ---
     const ctxRanking = document.getElementById('rankingChart');
     if (ctxRanking) {
         if (charts.ranking) charts.ranking.destroy();
@@ -355,25 +355,33 @@ function renderReports(logs) {
                     label: 'Alertas',
                     data: sortedUsers.slice(0, 5).map(u => u.count),
                     backgroundColor: ['#FF453A', '#FF9F0A', '#FFD60A', '#32D74B', '#64D2FF'],
-                    borderWidth: 0,
-                    borderRadius: 4,
-                    barThickness: 20
+                    borderWidth: 0, borderRadius: 4, barThickness: 20
                 }]
             },
             options: {
-                indexAxis: 'y',
-                responsive: true,
+                indexAxis: 'y', // Barra Horizontal
+                responsive: true, 
                 maintainAspectRatio: false,
-                scales: {
-                    x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8E8E93' } },
-                    y: { grid: { display: false }, ticks: { color: '#fff', font: { size: 11 } } }
+                scales: { 
+                    x: { 
+                        grid: { color: 'rgba(255,255,255,0.05)' }, 
+                        ticks: { color: '#8E8E93' } 
+                    }, 
+                    y: { 
+                        display: true, // <--- OBRIGATÓRIO TRUE PARA MOSTRAR NOMES
+                        grid: { display: false }, // Esconde linhas de grade mas mantém nomes
+                        ticks: { 
+                            color: '#fff', // Texto Branco
+                            font: { size: 11, weight: '600' } 
+                        } 
+                    } 
                 },
                 plugins: { legend: { display: false } }
             }
         });
     }
 
-    // --- MAPA DE CALOR "CYBER THERMAL" ---
+    // --- MAPA DE CALOR ---
     const heatmapContainer = document.getElementById('heatmap-container');
     if (heatmapContainer) {
         let html = '<div class="heatmap-grid">';
@@ -381,11 +389,10 @@ function renderReports(logs) {
         // Header
         html += '<div style="font-size:0.7rem; color:#888; text-align:right; padding-right:10px; align-self:end;">COLABORADOR</div>'; 
         for (let h = 0; h < 24; h++) {
-            // Formata hora: 00, 01...
             const hh = String(h).padStart(2, '0');
             html += `<div class="heatmap-header-cell">${hh}h</div>`;
         }
-        html += '<div class="heatmap-header-cell">TTL</div>'; // Header Total
+        html += '<div class="heatmap-header-cell">TTL</div>';
 
         // Linhas
         const usersToRender = sortedUsers.slice(0, 10);
@@ -394,8 +401,9 @@ function renderReports(logs) {
             html += '<div style="grid-column: 1/-1; padding:30px; text-align:center; color: var(--text-muted);">Nenhum dado térmico capturado hoje.</div>';
         } else {
             usersToRender.forEach(user => {
-                // Label Nome
-                html += `<div class="heatmap-user-label">${user.name.split(' ')[0]}</div>`;
+                // Escapa aspas para o onclick
+                const safeName = user.name.replace(/'/g, "\\'"); 
+                html += `<div class="heatmap-user-label" title="${user.name}">${user.name.split(' ')[0]}</div>`;
                 
                 const hours = heatmapData[user.uid] || Array(24).fill(0);
                 let userTotal = 0;
@@ -403,46 +411,107 @@ function renderReports(logs) {
                 hours.forEach((count, hourIndex) => {
                     userTotal += count;
                     let heatClass = '';
-                    
-                    // Lógica de Intensidade (Calor)
-                    if (count === 1) heatClass = 'heat-lvl-1';       // Azul
-                    else if (count >= 2 && count <= 3) heatClass = 'heat-lvl-2'; // Roxo
-                    else if (count >= 4 && count <= 5) heatClass = 'heat-lvl-3'; // Rosa
-                    else if (count >= 6) heatClass = 'heat-lvl-4';   // Fogo
+                    let clickAction = '';
 
-                    // Data Attributes para o Tooltip ler
+                    if (count > 0) {
+                        if (count === 1) heatClass = 'heat-lvl-1';
+                        else if (count >= 2 && count <= 3) heatClass = 'heat-lvl-2';
+                        else if (count >= 4 && count <= 5) heatClass = 'heat-lvl-3';
+                        else if (count >= 6) heatClass = 'heat-lvl-4';
+                        
+                        clickAction = `onclick="openHeatmapDetails('${user.uid}', '${safeName}', ${hourIndex})"`;
+                    }
+
                     html += `<div class="heatmap-cell ${heatClass}" 
-                                  onmouseover="showTooltip(event, '${user.name}', ${hourIndex}, ${count})" 
+                                  ${clickAction}
+                                  onmouseover="showTooltip(event, '${safeName}', ${hourIndex}, ${count})" 
                                   onmousemove="moveTooltip(event)" 
                                   onmouseout="hideTooltip()">
                              </div>`;
                 });
 
-                // Coluna Total da linha
                 html += `<div class="heatmap-total-label">${userTotal}</div>`;
             });
         }
-
         html += '</div>';
         heatmapContainer.innerHTML = html;
     }
 }
 
-// --- FUNÇÕES GLOBAIS DO TOOLTIP (PRECISAM ESTAR NO WINDOW PARA O HTML ACESSAR) ---
+// --- LÓGICA DO MODAL DE DETALHES ---
+
+// 1. Elementos do Modal
+const hmModal = document.getElementById('heatmap-details-modal');
+const hmTitle = document.getElementById('hm-modal-title');
+const hmSubtitle = document.getElementById('hm-modal-subtitle');
+const hmList = document.getElementById('hm-logs-list');
+const btnCloseHm = document.getElementById('close-hm-modal');
+const btnCloseHmFooter = document.getElementById('btn-close-hm-footer');
+
+// 2. Fechar Modal
+if(btnCloseHm) btnCloseHm.onclick = () => hmModal.classList.add('hidden');
+if(btnCloseHmFooter) btnCloseHmFooter.onclick = () => hmModal.classList.add('hidden');
+
+// 3. Função Global (Window) para abrir o modal
+window.openHeatmapDetails = function(uid, name, hour) {
+    if (!globalRawLogs || globalRawLogs.length === 0) return;
+
+    // A. Filtra os logs exatos (Mesmo UID, Mesma Hora, Apenas Alarmes)
+    const filtered = globalRawLogs.filter(log => {
+        const logHour = log.timestamp.toDate().getHours();
+        return log.uid === uid && logHour === hour && log.type === 'ALARM';
+    });
+
+    if (filtered.length === 0) return;
+
+    // B. Popula o Header
+    const hourStr = String(hour).padStart(2, '0');
+    hmTitle.innerText = `Incidentes: ${name}`;
+    hmSubtitle.innerText = `Horário: ${hourStr}:00 às ${hourStr}:59 • Total: ${filtered.length} ocorrências`;
+
+    // C. Gera a Lista HTML
+    hmList.innerHTML = '';
+    
+    // Ordena por minuto/segundo
+    filtered.sort((a, b) => a.timestamp.seconds - b.timestamp.seconds);
+
+    filtered.forEach(log => {
+        const date = log.timestamp.toDate();
+        const timeStr = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        
+        const item = document.createElement('div');
+        item.className = 'log-item-card';
+        item.innerHTML = `
+            <div style="display:flex; align-items:center;">
+                <span class="material-icons-round log-type-icon">warning</span>
+                <div>
+                    <div class="log-reason">${log.reason}</div>
+                    <small style="color:var(--text-muted); font-size:0.75rem;">Fadiga: ${log.fatigue_level || 'N/A'}</small>
+                </div>
+            </div>
+            <div class="log-time">${timeStr}</div>
+        `;
+        hmList.appendChild(item);
+    });
+
+    // D. Abre o Modal
+    hmModal.classList.remove('hidden');
+};
+
+// Funções de Tooltip (Mantidas)
 window.showTooltip = function(e, name, hour, count) {
     if(!tooltipEl) return;
-    if(count === 0) return; // Não mostra tooltip se não tiver dados
-
+    if(count === 0) return;
     const hourStr = String(hour).padStart(2, '0') + ":00";
     const nextHourStr = String(hour + 1).padStart(2, '0') + ":00";
-
     tooltipEl.innerHTML = `
         <h4>${name}</h4>
         <span>Horário: <strong>${hourStr} - ${nextHourStr}</strong></span>
         <span>Alertas: <strong style="color:var(--primary);">${count}</strong></span>
-        <span style="font-size:0.65rem; color:#888; margin-top:4px;">Clique para filtrar logs</span>
+        <span style="font-size:0.65rem; color:#888; margin-top:4px; border-top:1px solid rgba(255,255,255,0.1); padding-top:4px;">
+            <span class="material-icons-round" style="font-size:10px; vertical-align:middle;">touch_app</span> Clique para ver detalhes
+        </span>
     `;
-    
     tooltipEl.style.display = 'block';
     moveTooltip(e);
 };
@@ -931,3 +1000,4 @@ function exportLogsToCSV() {
     link.click();
     document.body.removeChild(link);
 }
+
