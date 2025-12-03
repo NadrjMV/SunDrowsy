@@ -54,6 +54,13 @@ const profilePreviewImg = document.getElementById('profile-preview-img');
 const lgpdModal = document.getElementById('lgpd-modal');
 const btnLgpdAccept = document.getElementById('btn-lgpd-accept');
 
+// --- VARIÁVEIS DO GRÁFICO ---
+const waveformCanvas = document.getElementById('ear-waveform');
+const waveformCtx = waveformCanvas ? waveformCanvas.getContext('2d') : null;
+
+// Array para guardar o histórico dos últimos 50 frames (EAR)
+let earHistory = new Array(50).fill(0.3);
+
 // Verifica se existe token na URL ao carregar
 const urlParams = new URLSearchParams(window.location.search);
 const inviteToken = urlParams.get('convite');
@@ -411,7 +418,6 @@ function onResults(results) {
         canvasCtx.translate(canvasElement.width, 0);
         canvasCtx.scale(-1, 1);
         
-        // --- AQUI ESTÁ A MÁGICA ---
         // Só desenha a foto da câmera se a variável for true
         if (window.showCameraFeed) {
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
@@ -426,8 +432,23 @@ function onResults(results) {
         if (!document.hidden) {
             if (window.showCameraFeed) {
                 // MODO CÂMERA LIGADA:
-                // Mantemos simples (apenas contornos) para não atrapalhar a visão do rosto real
-                drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1.5});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: 'rgba(0, 255, 255, 0.15)', lineWidth: 1});
+
+                // 2. Contorno do Rosto - Branco/Cinza
+                drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL, {color: 'rgba(255,255,255,0.5)', lineWidth: 2});
+
+                // 3. Destaque nos Olhos e Sobrancelhas (Foco da IA) - O Amarelo Marca
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#FFD028', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#FFD028', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYEBROW, {color: '#FFD028', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYEBROW, {color: '#FFD028', lineWidth: 2});
+
+                // 4. Boca - Um tom avermelhado/laranja para diferenciar
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#FF453A', lineWidth: 2});
+                
+                // 5. Íris (Pontos focais)
+                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_IRIS, {color: '#32D74B', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_IRIS, {color: '#32D74B', lineWidth: 2});
             
             } else {
                 // MODO CÂMERA DESLIGADA (HOLOGRÁFICO):
@@ -460,6 +481,13 @@ function onResults(results) {
         currentMAR = calculateMAR(landmarks);
         currentHeadRatio = calculateHeadTilt(landmarks); 
         currentPitch = calculatePitchRatio(landmarks); // Seu novo cálculo
+
+        // Média dos dois olhos para o gráfico
+        const avgEAR = (currentLeftEAR + currentRightEAR) / 2;
+        
+        // Passa o EAR atual e o Threshold configurado no detector
+        if(detector) updateWaveform(avgEAR, detector.config.EAR_THRESHOLD);
+        // ---------------------------
 
         // Envia para a lógica de detecção
         if (detector && !isCalibrating) {
@@ -905,6 +933,60 @@ window.toggleCamera = function(forceState) {
     
     console.log(window.showCameraFeed ? "📷 CÂMERA: LIGADA" : "💀 MODO HOLOGRÁFICO ATIVO");
 };
+
+// Gráfico do MAR da tela de Monitoramento 
+function updateWaveform(currentEAR, threshold) {
+    if (!waveformCtx) return;
+
+    const width = waveformCanvas.width;
+    const height = waveformCanvas.height;
+
+    // 1. Atualiza Dados (Remove o antigo, põe o novo)
+    earHistory.push(currentEAR);
+    earHistory.shift();
+
+    // 2. Limpa o Canvas
+    waveformCtx.clearRect(0, 0, width, height);
+
+    // 3. Desenha Linha de Limite (Vermelha)
+    // Mapeia o threshold (ex: 0.22) para a altura do canvas (0 a 0.5 de range visual)
+    const threshY = height - (threshold / 0.5) * height;
+    
+    waveformCtx.beginPath();
+    waveformCtx.strokeStyle = 'rgba(255, 69, 58, 0.6)'; // Vermelho meio transparente
+    waveformCtx.lineWidth = 1;
+    waveformCtx.setLineDash([4, 4]); // Linha pontilhada
+    waveformCtx.moveTo(0, threshY);
+    waveformCtx.lineTo(width, threshY);
+    waveformCtx.stroke();
+    waveformCtx.setLineDash([]); // Reseta
+
+    // 4. Desenha Onda do EAR (Amarela/Azul)
+    waveformCtx.beginPath();
+    waveformCtx.lineWidth = 2;
+    // Se estiver abaixo do limite (perigo), a linha fica vermelha, senão amarela/azul
+    waveformCtx.strokeStyle = currentEAR < threshold ? '#FF453A' : '#FFD028'; 
+    waveformCtx.shadowBlur = 5;
+    waveformCtx.shadowColor = waveformCtx.strokeStyle;
+
+    // Percorre o histórico e desenha
+    const step = width / (earHistory.length - 1);
+    
+    for (let i = 0; i < earHistory.length; i++) {
+        const val = earHistory[i];
+        // Mapeia valor (0.0 a 0.5) para altura do canvas
+        // Clamp para não sair do gráfico visualmente
+        const clampVal = Math.min(Math.max(val, 0), 0.5); 
+        const y = height - (clampVal / 0.5) * height;
+        
+        if (i === 0) waveformCtx.moveTo(0, y);
+        else waveformCtx.lineTo(i * step, y);
+    }
+    waveformCtx.stroke();
+    
+    // Reset de sombra para performance
+    waveformCtx.shadowBlur = 0;
+}
 
 // Listener do Clique
 if (btnFabCamera) {

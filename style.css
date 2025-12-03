@@ -264,6 +264,36 @@ body {
 
 hr { border: none; border-top: 1px solid var(--glass-border); margin: 1rem 0; }
 
+/* novos estilos do HUD para o gráfico  */
+
+.hud-graph-container {
+    background: rgba(10, 10, 10, 0.7); 
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px); 
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px; /* Um pouco menos arredondado que as pills laterais */
+    padding: 5px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+.hud-graph-container canvas {
+    width: 120px;
+    height: 40px;
+    display: block;
+}
+
+.hud-graph-container small {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+    margin-top: 2px;
+    font-weight: 700;
+}
+
 /* =========================================
    --- ADMIN & DASHBOARD STYLES ---
    ========================================= */
