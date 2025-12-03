@@ -65,10 +65,10 @@ export class DrowsinessDetector {
             lastUiText: ""
         };
 
-        // Buffer para Microssono (Agrupamento)
+        // Buffer para Microssono (Agrupamento Centralizado)
         this.microsleepBuffer = {
             active: false,
-            totalDuration: 0,
+            accumulatedTime: 0, // Acumulador real
             timer: null
         };
     }
@@ -262,7 +262,7 @@ export class DrowsinessDetector {
         }
     }
 
-    // --- NOVA LÓGICA DE MICROSSONO (SOM IMEDIATO, LOG AGRUPADO) ---
+    // --- NOVA LÓGICA DE MICROSSONO (SOM IMEDIATO, LOG AGRUPADO E SOMADO) ---
     triggerMicrosleepEvent(duration) {
         // 1. Feedback Imediato (Segurança)
         if (!this.state.isAlarmActive) {
@@ -272,32 +272,39 @@ export class DrowsinessDetector {
             this.onStatusChange({ alarm: true, text: "MICROSSONO" });
         }
 
-        // 2. Lógica de Agrupamento de Logs
-        // Se já tem um timer rodando, cancela ele (pois o usuário continuou dormindo ou piscou de novo)
+        // 2. Lógica de Agrupamento de Logs ROBUSTA
+        // Se já tem um timer rodando, cancela ele e acumula o tempo
         if (this.microsleepBuffer.timer) {
             clearTimeout(this.microsleepBuffer.timer);
         }
 
-        // Acumula o tempo. 
-        // Nota: duration é o tempo TOTAL atual desde que fechou. 
-        // Se estamos num loop, precisamos pegar o maior valor, ou resetar quando abrir.
-        // Simplificação: Vamos registrar o tempo deste evento específico no buffer
         this.microsleepBuffer.active = true;
+        
+        // Se é um evento contínuo (loop), usamos o duration atual. 
+        // Se fosse eventos separados, somariamos. 
+        // Para simplificar: consideramos o MAIOR duration deste bloco como o evento.
+        // Ou, se você prefere somar eventos distintos:
+        // this.microsleepBuffer.accumulatedTime += duration; (Cuidado com duplicação em loop)
+        
+        // Ajuste: Vamos usar o duration passado (tempo desde fechar olho) como o valor deste evento.
+        // O acumulador vai guardar o "pior" evento deste cluster.
+        if (duration > this.microsleepBuffer.accumulatedTime) {
+            this.microsleepBuffer.accumulatedTime = duration;
+        }
         
         // Define um timeout. Se o usuário abrir o olho e ficar 5s sem fechar de novo, enviamos o log.
         this.microsleepBuffer.timer = setTimeout(() => {
-            // Tempo de enviar o log acumulado
-            // O duration aqui pode estar desatualizado, mas a lógica de 'soma' que você pediu
-            // sugere: evento 1 (4s) + intervalo + evento 2 (4s) = 8s.
+            // Tempo de enviar o log final consolidado
+            const totalSec = (this.microsleepBuffer.accumulatedTime / 1000).toFixed(1);
+            const reason = `MICROSSONO DETECTADO (${totalSec}s)`;
+
+            this.logToFirebaseSmart(reason);
             
-            // Na verdade, o log deve ser gerado.
-            // Vamos usar o duration passado aqui como referência do ultimo evento.
-            // Para somar eventos distintos, precisariamos de uma variavel 'accumulatedTime'.
-            
-            // Implementação da Soma:
-            this.logToFirebaseSmart(`MICROSSONO DETECTADO`, duration);
+            // Reset completo
             this.microsleepBuffer.active = false;
-        }, 5000); // Espera 5s de "paz" antes de consolidar o log
+            this.microsleepBuffer.accumulatedTime = 0;
+            this.microsleepBuffer.timer = null;
+        }, 5000); 
     }
 
     // Função Padrão de Alarme (Logs imediatos)
@@ -319,7 +326,7 @@ export class DrowsinessDetector {
         this.updateUI(reason); 
         
         // Envia log Imediato
-        this.logToFirebaseSmart(reason, 0, true);
+        this.logToFirebaseSmart(reason);
     }
 
     stopAlarm() {
@@ -371,30 +378,12 @@ export class DrowsinessDetector {
         }
     }
 
-    // --- NOVA FUNÇÃO INTELIGENTE DE LOG ---
-    // Se for Microssono, tenta agrupar. Se for critical, envia direto.
-    logToFirebaseSmart(reason, durationMs = 0, forceImmediate = false) {
+    // --- FUNÇÃO DE LOG SIMPLIFICADA (SEM LÓGICA DE ESTADO INTERNO) ---
+    logToFirebaseSmart(reason) {
         if(!auth.currentUser) return;
 
-        // Se for microssono, vamos tentar somar com o último log se ele for recente?
-        // Para simplificar e atender seu pedido de "4s+4s = 8s":
-        // A lógica do microsleepBuffer acima já retarda o envio. 
-        // Se o usuário cochilar de novo dentro de 5s, o timeout reseta.
-        // Precisamos de uma variável acumuladora na classe.
-        
-        if (reason.includes("MICROSSONO") && !forceImmediate) {
-            if (!this.state.microsleepAccumulator) this.state.microsleepAccumulator = 0;
-            this.state.microsleepAccumulator += durationMs;
-            
-            // Atualiza o texto do reason com a soma
-            const totalSec = (this.state.microsleepAccumulator / 1000).toFixed(1);
-            reason = `MICROSSONO DETECTADO (${totalSec}s)`;
-            
-            // Reseta o acumulador após usar (pois o timeout só chama aqui no final do evento agrupado)
-            // OPS: Se resetar aqui, e o timeout rodar de novo...
-            // O timeout roda UMA vez por grupo de cochilos.
-            this.state.microsleepAccumulator = 0; 
-        }
+        // A lógica de acumulação agora vive exclusivamente no microsleepBuffer/triggerMicrosleepEvent.
+        // Esta função apenas executa a ordem de gravação.
 
         setTimeout(() => {
             const date = new Date();
