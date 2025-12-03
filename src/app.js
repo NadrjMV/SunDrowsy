@@ -12,6 +12,8 @@ let isCalibrating = false;
 
 let lastUiUpdate = 0;
 
+let hasPerformedCalibration = false;
+
 let animationFrameId = null;
 
 // --- ELEMENTOS DOM ---
@@ -547,35 +549,52 @@ btnStartCalib.addEventListener('click', async () => {
     if (audioMgr && audioMgr.audioContext) audioMgr.audioContext.resume();
     
     // --- BLOQUEIO DE SEGURANÇA ---
-    isCalibrating = true; // Impede que o sistema apite durante o processo
-    if (detector) detector.stopAlarm(); // Para qualquer alarme que esteja tocando agora
-    detector.updateUI("CALIBRANDO..."); // Muda o status na tela
+    isCalibrating = true;
+    if (detector) detector.stopAlarm();
+    detector.updateUI("CALIBRANDO..."); 
     // -----------------------------
 
     btnStartCalib.disabled = true;
 
-    // 2. TOCA O ÁUDIO COMPLETO
-    const fullAudio = new Audio('assets/calibracao.mp3');
-    fullAudio.volume = 1.0;
-    fullAudio.play().catch(e => {
-        console.error("Erro ao tocar áudio completo:", e);
-        alert("Erro: Verifique se 'assets/calibracao.mp3' existe.");
-    });
+    // Define se é a primeira vez ou recalibração (Speed Run)
+    const isFirstTime = !hasPerformedCalibration;
+
+    // Tempos Dinâmicos (Primeira vez vs Recalibração)
+    // Intro: De 9s cai para 2.5s (Só pra preparar)
+    const t_intro = isFirstTime ? 9000 : 2500;
+    // Passos: Reduzidos quase pela metade
+    const t_open = isFirstTime ? 7000 : 4000;
+    const t_close = isFirstTime ? 9000 : 5000;
+    const t_yawn = isFirstTime ? 8200 : 5000;
+    const t_final = isFirstTime ? 4500 : 2000;
+
+    // 2. SÓ TOCA O ÁUDIO SE FOR A PRIMEIRA VEZ
+    if (isFirstTime) {
+        const fullAudio = new Audio('assets/calibracao.mp3');
+        fullAudio.volume = 1.0;
+        fullAudio.play().catch(e => {
+            console.error("Erro ao tocar áudio completo:", e);
+        });
+    } else {
+        console.log("⏩ Modo Recalibração: Áudio pulado.");
+    }
 
     // Variáveis de captura
     let avgOpenEAR = 0, avgClosedEAR = 0, avgYawnMAR = 0, avgHeadRatio = 0;
 
     // --- FASE 1: INTRODUÇÃO ---
-    calibText.innerText = "Bem-vindo. Sente-se confortavelmente e olhe para frente.";
+    calibText.innerText = isFirstTime 
+        ? "Bem-vindo. Sente-se confortavelmente e olhe para frente." 
+        : "Preparando recalibração rápida..."; // Texto adaptado
     calibProgress.style.width = "10%";
     
-    await new Promise(r => setTimeout(r, 9000)); 
+    await new Promise(r => setTimeout(r, t_intro)); 
 
     // --- FASE 2: OLHOS ABERTOS ---
     calibText.innerText = "Mantenha os olhos ABERTOS e a CABEÇA RETA.";
     calibProgress.style.width = "30%";
     
-    await new Promise(r => setTimeout(r, 7000));
+    await new Promise(r => setTimeout(r, t_open));
 
     // CAPTURA NEUTRA
     avgOpenEAR = (currentLeftEAR + currentRightEAR) / 2;
@@ -586,7 +605,7 @@ btnStartCalib.addEventListener('click', async () => {
     calibText.innerText = "Mantenha os olhos FECHADOS...";
     calibProgress.style.width = "60%";
 
-    await new Promise(r => setTimeout(r, 9000));
+    await new Promise(r => setTimeout(r, t_close));
     
     // CAPTURA FECHADO
     avgClosedEAR = (currentLeftEAR + currentRightEAR) / 2;
@@ -596,7 +615,7 @@ btnStartCalib.addEventListener('click', async () => {
     calibText.innerText = "ABRA A BOCA (Simule um bocejo)...";
     calibProgress.style.width = "85%";
 
-    await new Promise(r => setTimeout(r, 8200));
+    await new Promise(r => setTimeout(r, t_yawn));
     
     // CAPTURA BOCEJO
     avgYawnMAR = currentMAR;
@@ -607,10 +626,10 @@ btnStartCalib.addEventListener('click', async () => {
         detector.setCalibration(avgClosedEAR, avgOpenEAR, avgYawnMAR, avgHeadRatio);
     }
     
-    calibText.innerText = "Calibração Concluída com Sucesso!";
+    calibText.innerText = "Calibração Atualizada!";
     calibProgress.style.width = "100%";
     
-    await new Promise(r => setTimeout(r, 4500));
+    await new Promise(r => setTimeout(r, t_final));
     
     // Fecha tudo e LIBERA O SISTEMA
     toggleModal(calibModal, false);
@@ -619,7 +638,8 @@ btnStartCalib.addEventListener('click', async () => {
     calibProgress.style.width = "0%";
     
     // --- LIBERA O DETECTOR ---
-    isCalibrating = false; // Agora o sistema volta a vigiar
+    isCalibrating = false;
+    hasPerformedCalibration = true; // Marca que já fez uma vez nessa sessão
     if(detector) detector.updateUI("SISTEMA ATIVO");
 });
 
