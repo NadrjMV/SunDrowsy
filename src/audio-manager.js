@@ -48,7 +48,7 @@ export class AudioManager {
         source.start(0);
         this.currentSource = source;
         this.isPlaying = true;
-        console.log("🔊 TOANDO ALARME!");
+        console.log("🔊 TOCANDO ALARME!");
     }
 
     stopAlert() {

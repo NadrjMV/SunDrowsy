@@ -372,13 +372,11 @@ if (debugSlider) {
         const newVal = parseFloat(e.target.value);
         
         if (detector) {
-            // Atualiza a config em tempo real
-            detector.config.HEAD_RATIO_THRESHOLD = newVal;
+            // Atualiza a config de OLHOS (EAR) em tempo real
+            detector.config.EAR_THRESHOLD = newVal;
             
-            // Log para você saber o valor exato
-            console.clear(); // Limpa para não poluir
-            console.log(`🎚️ AJUSTE MANUAL: Novo Limite = ${newVal}`);
-            console.log(`ℹ️ Dica: Se a leitura atual cair ABAIXO de ${newVal}, o alarme dispara.`);
+            console.clear();
+            console.log(`👁️ AJUSTE MANUAL OLHOS: Novo Limite = ${newVal}`);
         }
         
         debugThreshVal.innerText = newVal.toFixed(2);
@@ -505,17 +503,30 @@ function onResults(results) {
             const debugState = document.getElementById('debug-state');
             const slider = document.getElementById('debug-slider');
 
+            // Calcula média EAR aqui para exibir
+            const avgEAR = (currentLeftEAR + currentRightEAR) / 2;
+
             if (debugLive && detector) {
-                debugLive.innerText = currentHeadRatio.toFixed(3);
+                // Mostra o valor do EAR
+                debugLive.innerText = avgEAR.toFixed(3);
                 
-                // Só atualiza o slider se o usuário NÃO estiver arrastando ele
                 if (document.activeElement !== slider) {
-                     // Verifica se o valor mudou antes de forçar update do DOM (evita Reflow)
-                     const currentThresh = detector.config.HEAD_RATIO_THRESHOLD;
+                     const currentThresh = detector.config.EAR_THRESHOLD; // Lê config de EAR
                      if (Math.abs(parseFloat(slider.value) - currentThresh) > 0.01) {
                         slider.value = currentThresh;
                         document.getElementById('debug-thresh-val').innerText = currentThresh.toFixed(2);
                      }
+                }
+
+                // Lógica Visual baseada em Olhos
+                const isEyesClosed = avgEAR < detector.config.EAR_THRESHOLD;
+
+                if (isEyesClosed) {
+                    debugState.innerText = "DETECTADO: OLHOS FECHADOS 😴";
+                    debugState.style.color = "var(--danger)";
+                } else {
+                    debugState.innerText = "ESTADO: OLHOS ABERTOS 👀";
+                    debugState.style.color = "var(--safe)";
                 }
 
                 // Lógica Visual

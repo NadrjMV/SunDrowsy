@@ -3,7 +3,7 @@ import { db, auth } from './firebase-config.js';
 // --- CONFIGURAÇÕES PADRÃO ---
 const FACTORY_CONFIG = {
     // Tempos
-    CRITICAL_TIME_MS: 15000,        // 15s (Sono Profundo)
+    CRITICAL_TIME_MS: 3000,        // 15s (Sono Profundo)
     MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
     HEAD_DOWN_TIME_MS: 5000,       // 20s (Cabeça baixa)
     HEAD_CRITICAL_TIME_MS: 20000,   // 20s (Crítico - Novo Requisito)
@@ -11,15 +11,15 @@ const FACTORY_CONFIG = {
     LONG_BLINK_TIME_MS: 1300,        
     BLINK_WINDOW_MS: 60000,         
     
-    YAWN_TIME_MS: 1500,             
+    YAWN_TIME_MS: 4000,             
     YAWN_RESET_TIME: 5000,          
 
     EAR_THRESHOLD: 0.22,
-    MAR_THRESHOLD: 0.50,
+    MAR_THRESHOLD: 0.65,
     HEAD_RATIO_THRESHOLD: 0.85,     
     
     REQUIRED_LONG_BLINKS: 5,        
-    REQUIRED_YAWNS: 3,              
+    REQUIRED_YAWNS: 5,              
     
     role: 'VIGIA'
 };
@@ -117,7 +117,7 @@ export class DrowsinessDetector {
 
             const duration = Date.now() - this.state.headDownSince;
 
-            // ESTÁGIO 1: Aviso Rápido (1s)
+            // ESTÁGIO 1: Aviso Rápido
             if (duration >= this.config.HEAD_DOWN_TIME_MS && duration < this.config.HEAD_CRITICAL_TIME_MS) {
                 if (!this.state.hasLoggedHeadDown) {
                     this.triggerAlarm(`ATENÇÃO: CABEÇA BAIXA`);
@@ -126,10 +126,9 @@ export class DrowsinessDetector {
                 }
             }
             
-            // ESTÁGIO 2: Crítico (20s) - NOVO
+            // ESTÁGIO 2: Crítico
             if (duration >= this.config.HEAD_CRITICAL_TIME_MS) {
                 if (!this.state.hasLoggedHeadCritical) {
-                    // "CRÍTICO" no texto garante que o Admin conte como incidente grave
                     this.triggerAlarm(`PERIGO: CABEÇA BAIXA (+20s)`); 
                     this.state.hasLoggedHeadCritical = true;
                 }
@@ -141,43 +140,31 @@ export class DrowsinessDetector {
             if (this.state.headRecoveryFrames > 5) {
                 this.state.headDownSince = null;
                 this.state.hasLoggedHeadDown = false;
-                this.state.hasLoggedHeadCritical = false; // Reset do crítico
+                this.state.hasLoggedHeadCritical = false;
                 this.state.isHeadDown = false;
-                
-                if (this.state.isAlarmActive && 
-                    this.state.longBlinksCount < this.config.REQUIRED_LONG_BLINKS && 
-                    this.state.yawnCount < this.config.REQUIRED_YAWNS) {
-                    this.stopAlarm();
-                }
+                // ⚠️ REMOVIDO: stopAlarm() .
             }
         }
     }
 
     processDetection(leftEAR, rightEAR, mar) {
-        if (!this.state.monitoring || !this.state.isCalibrated) return;
+    if (!this.state.monitoring || !this.state.isCalibrated) return;
 
-        const now = Date.now();
-        const cfg = this.config;
+    const now = Date.now();
+    const cfg = this.config;
 
-        // Reset Window
-        if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
-            this.state.longBlinksCount = 0;
-            this.state.yawnCount = 0; 
-            this.state.hasLoggedFatigue = false; 
-            this.state.longBlinksWindowStart = now;
-            this.updateUICounters(); 
-        }
+    // Reset janela
+    if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
+        this.state.longBlinksCount = 0;
+        this.state.yawnCount = 0; 
+        this.state.hasLoggedFatigue = false; 
+        this.state.longBlinksWindowStart = now;
+        this.updateUICounters(); 
+    }
 
-        // Bocejo
-        if (mar > cfg.MAR_THRESHOLD) {
-            if (this.state.mouthOpenSince === null) this.state.mouthOpenSince = now;
-            if ((now - this.state.mouthOpenSince) >= cfg.YAWN_TIME_MS && !this.state.isYawning) {
-                if (now - this.state.lastYawnTime > cfg.YAWN_RESET_TIME) this.triggerYawn();
-            }
-        } else {
-            this.state.mouthOpenSince = null;
-            this.state.isYawning = false;
-        }
+    // --- DEFINIÇÃO ÚNICA DE OLHO FECHADO (MESMA DO DEBUG) ---
+    const earAvg = (leftEAR + rightEAR) / 2;
+    const isClosedRaw = earAvg < cfg.EAR_THRESHOLD;
 
         // Olhos
         const isClosed = (leftEAR < cfg.EAR_THRESHOLD) && (rightEAR < cfg.EAR_THRESHOLD);
@@ -190,6 +177,23 @@ export class DrowsinessDetector {
             isEffectivelyClosed = false;
         } else {
             this.state.recoveryFrames = 0;
+        }
+
+        // Bocejo (ignora quando os olhos estão fechados para evitar falsos positivos)
+        if (!isEffectivelyClosed) {
+            if (mar > cfg.MAR_THRESHOLD) {
+                if (this.state.mouthOpenSince === null) this.state.mouthOpenSince = now;
+                if ((now - this.state.mouthOpenSince) >= cfg.YAWN_TIME_MS && !this.state.isYawning) {
+                    if (now - this.state.lastYawnTime > cfg.YAWN_RESET_TIME) this.triggerYawn();
+                }
+            } else {
+                this.state.mouthOpenSince = null;
+                this.state.isYawning = false;
+            }
+        } else {
+            // Se os olhos estão fechados, zera o rastreio de bocejo para não acumular
+            this.state.mouthOpenSince = null;
+            this.state.isYawning = false;
         }
 
         if (isEffectivelyClosed) {
