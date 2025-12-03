@@ -831,3 +831,45 @@ select option { background-color: #1a1a1e; color: #fff; padding: 12px; }
     background: var(--glass-border);
     border-radius: 3px;
 }
+
+/* --- MINHA ASSINATURA --- */
+.dev-footer {
+    margin-top: 15px;
+    font-size: 0.73rem; /* Pequeno e discreto */
+    color: var(--text-muted);
+    text-align: center;
+    padding-top: 15px;
+    border-top: 1px solid var(--glass-border); /* Separação sutil do botão logout */
+    line-height: 1.6;
+    transition: var(--transition);
+}
+
+.dev-footer:hover {
+    color: #fff;
+    opacity: 1;
+}
+
+.dev-footer a {
+    color: #fff;
+    font-weight: 700;
+    text-decoration: none;
+    transition: color 0.3s;
+}
+
+.dev-footer a:hover {
+    text-decoration: underline;
+    color: var(--primary); /* Efeito hover dourado */
+}
+
+.verified-badge {
+    color: #1DA1F2; /* Azul verificado oficial */
+    font-size: 0.85em;
+    vertical-align: middle;
+    margin-left: 2px;
+}
+
+/* Garante que suma visualmente quando a sidebar estiver desfocada (Lunch Mode) */
+#app-view.lunch-mode .dev-footer {
+    opacity: 0;
+    pointer-events: none;
+}

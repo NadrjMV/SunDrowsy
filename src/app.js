@@ -586,7 +586,7 @@ btnStartCalib.addEventListener('click', async () => {
     calibText.innerText = "Mantenha os olhos FECHADOS...";
     calibProgress.style.width = "60%";
 
-    await new Promise(r => setTimeout(r, 8000));
+    await new Promise(r => setTimeout(r, 9000));
     
     // CAPTURA FECHADO
     avgClosedEAR = (currentLeftEAR + currentRightEAR) / 2;
