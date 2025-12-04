@@ -18,7 +18,8 @@ let lastUiUpdate = 0;
 
 let hasPerformedCalibration = false;
 
-let animationFrameId = null;
+// let animationFrameId = null; 
+let detectionIntervalId = null;
 
 // --- ELEMENTOS DOM ---
 const loginView = document.getElementById('login-view');
@@ -382,8 +383,8 @@ async function initSystem() {
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
             videoElement.play();
-            startDetectionLoop(); 
-            detector.updateUI("SISTEMA ATIVO"); // Feedback visual
+            startDetectionLoop();
+            detector.updateUI("SISTEMA ATIVO");
         };
     } catch (err) {
         console.error("Erro Câmera:", err);
@@ -411,9 +412,15 @@ if (debugSlider) {
 }
 
 function stopSystem() {
-    if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
+    //if (animationFrameId) {
+    //    cancelAnimationFrame(animationFrameId);
+    //    animationFrameId = null;
+    //}
+
+    // NOVO: Limpa o Intervalo de detecção
+    if (detectionIntervalId !== null) {
+        clearInterval(detectionIntervalId);
+        detectionIntervalId = null;
     }
     
     if (tickerWorker) { 
@@ -728,33 +735,68 @@ function hasLunchToday() {
     return lastLunch === today;
 }
 
-async function startDetectionLoop() {
-    if (!videoElement.videoWidth || videoElement.paused || videoElement.ended) {
-        animationFrameId = requestAnimationFrame(startDetectionLoop);
-        return;
-    }
+const DETECTION_FPS = 20;
 
-    // Limitador de FPS: Só processa a cada ~100ms (10 FPS).
-    // Isso evita que o MediaPipe engasgue a thread principal do navegador.
-    const now = Date.now();
-    if (now - lastProcessTime < 50) {
-        animationFrameId = requestAnimationFrame(startDetectionLoop);
-        return;
-    }
+function startDetectionLoop() {
+    // 1. Garante que o loop não esteja rodando duas vezes
+    if (detectionIntervalId !== null) return;
+    
+    // 2. O novo loop de detecção (a cada 50ms)
+    detectionIntervalId = setInterval(() => {
+        // A lógica de throttling de FPS baseada em tempo (lastProcessTime) é removida
+        // porque o setInterval já garante a frequência mínima.
 
-    if (!isProcessingFrame) {
-        isProcessingFrame = true;
-        lastProcessTime = now; // Atualiza o timestamp
-        try {
-            await faceMesh.send({image: videoElement});
-        } catch (error) {
-            console.warn("Frame drop:", error);
-        } finally {
-            isProcessingFrame = false;
+        if (!isProcessingFrame) {
+            isProcessingFrame = true;
+            
+            // Chamar o FaceMesh.send é o que realmente inicia o processamento do frame
+            // e chama onResults quando termina.
+            try {
+                faceMesh.send({image: videoElement}).then(() => {
+                     isProcessingFrame = false; // Libera para o próximo ciclo
+                }).catch(error => {
+                     console.warn("Frame drop/Processamento Falhou:", error);
+                     isProcessingFrame = false; // Libera mesmo em falha para evitar travamento
+                });
+            } catch (error) {
+                 isProcessingFrame = false;
+            }
+        }
+    }, DETECTION_FPS); // Roda a cada 50ms
+}
+
+function handleVisibilityChange() {
+    if (!auth.currentUser || !detector) return;
+
+    if (document.hidden) {
+        // A ABA SAIU DO FOCO
+        console.warn("😴 PÁGINA INATIVA: Reduzindo o impacto visual. O monitoramento CONTINUA.");
+        
+        // 1. A detecção CONTÍNUA rodando via setInterval.
+        detector.state.monitoring = true; // Mantém ligado
+
+        // 2. PARE o alarme imediatamente se estiver tocando (evita som alto em background)
+        detector.stopAlarm(); 
+
+        // 3. Atualiza UI/Console (apenas para debug/log)
+        detector.updateUI("MONITORANDO: SEGUNDO PLANO");
+        
+    } else {
+        // A ABA VOLTOU AO FOCO
+        console.log("🚀 PÁGINA ATIVA: Retomando UI e monitoramento em foco.");
+
+        // A detecção já estava rodando via setInterval.
+        detector.state.monitoring = true;
+        
+        // Retoma o UI (se não houver alarme ativo)
+        if (!detector.state.isAlarmActive) {
+            detector.updateUI("SISTEMA ATIVO");
         }
     }
-    animationFrameId = requestAnimationFrame(startDetectionLoop);
 }
+
+// O listener deve ser mantido:
+document.addEventListener('visibilitychange', handleVisibilityChange);
 
 // Controla o Estado
 function toggleLunchState(active) {
@@ -1083,23 +1125,38 @@ if (debugSliderHead) {
     debugSliderHead.addEventListener('change', saveCalibrationToFirebase);
 }
 
-// salva frame da ocorrência 
-// Torna global para o Detector conseguir chamar
+// Torna global pro Detector conseguir chamar
 window.captureSnapshot = async () => {
-    if (!canvasElement) return null;
+    // Verifica se o elemento de vídeo existe e está carregado
+    if (!videoElement) return null;
 
-    // Retorna uma Promise que resolve com a string Base64 da imagem
+    // Retorna uma Promise que resolve com a string Base64 da imagem RAW
     return new Promise((resolve) => {
-        // 'image/jpeg' com qualidade 0.5 gera uma string pequena (~30-50kb)
-        // Isso cabe tranquilamente dentro do limite de 1MB do documento do Firestore
-        const dataUrl = canvasElement.toDataURL('image/jpeg', 0.5);
-        
-        // Verifica se gerou algo válido (apenas segurança)
+        // 1. Cria um canvas temporário em memória para a captura raw
+        const tempCanvas = document.createElement('canvas');
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // 2. Define o tamanho do canvas com base no vídeo
+        tempCanvas.width = videoElement.videoWidth;
+        tempCanvas.height = videoElement.videoHeight;
+
+        // 3. Desenha o frame atual do vídeo (Raw) no canvas temporário
+        // Aplica o espelhamento horizontal (mirror) para a imagem capturada
+        tempCtx.save();
+        tempCtx.translate(tempCanvas.width, 0);
+        tempCtx.scale(-1, 1);
+        tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.restore();
+
+        // 4. Converte a imagem raw para Base64 (qualidade 0.5 para otimizar o Firebase)
+        const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.5);
+
         if (dataUrl && dataUrl.length > 100) {
-            console.log("📸 Snapshot convertido para Base64 (Tamanho: " + Math.round(dataUrl.length/1024) + "KB)");
+            // Log para debug, mostrando o tamanho da imagem
+            console.log("📸 Snapshot RAW capturado e convertido para Base64 (Tamanho: " + Math.round(dataUrl.length/1024) + "KB)");
             resolve(dataUrl);
         } else {
-            console.warn("⚠️ Falha ao gerar snapshot.");
+            console.warn("⚠️ Falha ao gerar snapshot RAW.");
             resolve(null);
         }
     });
