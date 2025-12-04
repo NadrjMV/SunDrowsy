@@ -316,6 +316,11 @@ function startAppFlow(user, userRole, userData) {
     } else {
         toggleModal(calibModal, true);
     }
+    if (userData && userData.settings && typeof userData.settings.showCamera === 'boolean') {
+        console.log(`⚙️ Preferência carregada: Câmera ${userData.settings.showCamera ? 'ON' : 'OFF'}`);
+        // Força o estado salvo sem inverter
+        window.toggleCamera(userData.settings.showCamera);
+    }
 }
 
 // --- HELPER MODAL ---
@@ -372,7 +377,7 @@ async function initSystem() {
     try {
         // Reduzi para 640x480. 720p é overkill pra detecção e mata CPU sem placa de vídeo dedicada.
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
         });
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
@@ -732,7 +737,7 @@ async function startDetectionLoop() {
     // Limitador de FPS: Só processa a cada ~100ms (10 FPS).
     // Isso evita que o MediaPipe engasgue a thread principal do navegador.
     const now = Date.now();
-    if (now - lastProcessTime < 100) {
+    if (now - lastProcessTime < 50) {
         animationFrameId = requestAnimationFrame(startDetectionLoop);
         return;
     }
@@ -925,7 +930,7 @@ window.showCameraFeed = true;
 const btnFabCamera = document.getElementById('btn-fab-camera');
 
 window.toggleCamera = function(forceState) {
-    // 1. Define o novo estado
+    // 1. Define o novo estado (Se passar forceState, usa ele. Se não, inverte o atual)
     if (typeof forceState === 'boolean') {
         window.showCameraFeed = forceState;
     } else {
@@ -936,16 +941,16 @@ window.toggleCamera = function(forceState) {
     if (btnFabCamera) {
         const icon = btnFabCamera.querySelector('span');
         if (window.showCameraFeed) {
-            // Modo Normal (Vídeo)
+            // Modo Normal (Vídeo normal)
             icon.innerText = 'videocam';
             btnFabCamera.classList.remove('active');
             btnFabCamera.style.background = 'rgba(255,255,255,0.1)';
             btnFabCamera.style.color = '#fff';
+            btnFabCamera.style.boxShadow = 'none';
         } else {
-            // Modo Matrix (Só Malha)
-            icon.innerText = 'texture'; // Ícone de malha/textura
+            // Modo Matrix (Só a máscara)
+            icon.innerText = 'texture'; 
             btnFabCamera.classList.add('active');
-            // Estilo Cyberpunk no botão
             btnFabCamera.style.background = 'rgba(0, 255, 255, 0.2)';
             btnFabCamera.style.color = 'cyan';
             btnFabCamera.style.boxShadow = '0 0 15px rgba(0, 255, 255, 0.4)';
@@ -953,6 +958,16 @@ window.toggleCamera = function(forceState) {
     }
     
     console.log(window.showCameraFeed ? "📷 CÂMERA: LIGADA" : "💀 MODO HOLOGRÁFICO ATIVO");
+
+    // 3. Salva a preferência no Firebase
+    // Só salva se não foi uma chamada de "carregamento"
+    if (auth.currentUser) {
+        db.collection('users').doc(auth.currentUser.uid).set({
+            settings: { 
+                showCamera: window.showCameraFeed 
+            }
+        }, { merge: true }).catch(err => console.error("Erro ao salvar pref. câmera:", err));
+    }
 };
 
 // Gráfico do MAR da tela de Monitoramento 
