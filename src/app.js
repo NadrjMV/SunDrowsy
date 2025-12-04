@@ -12,6 +12,8 @@ let currentMAR = 0;
 let currentHeadRatio = 0; 
 let isCalibrating = false;
 
+let lastProcessTime = 0; // Controle de FPS
+
 let lastUiUpdate = 0;
 
 let hasPerformedCalibration = false;
@@ -368,8 +370,9 @@ async function initSystem() {
     faceMesh.onResults(onResults);
 
     try {
+        // Reduzi para 640x480. 720p é overkill pra detecção e mata CPU sem placa de vídeo dedicada.
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
+            video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }
         });
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
@@ -726,8 +729,17 @@ async function startDetectionLoop() {
         return;
     }
 
+    // Limitador de FPS: Só processa a cada ~100ms (10 FPS).
+    // Isso evita que o MediaPipe engasgue a thread principal do navegador.
+    const now = Date.now();
+    if (now - lastProcessTime < 100) {
+        animationFrameId = requestAnimationFrame(startDetectionLoop);
+        return;
+    }
+
     if (!isProcessingFrame) {
         isProcessingFrame = true;
+        lastProcessTime = now; // Atualiza o timestamp
         try {
             await faceMesh.send({image: videoElement});
         } catch (error) {
