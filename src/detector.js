@@ -5,7 +5,7 @@ const FACTORY_CONFIG = {
     // Tempos
     CRITICAL_TIME_MS: 20000,        // 20s (Sono Profundo - Ajustado conforme logs)
     MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
-    HEAD_DOWN_TIME_MS: 10000,       // 10s (Cabeça baixa)
+    HEAD_DOWN_TIME_MS: 120000,       // 2min (Cabeça baixa)
     HEAD_CRITICAL_TIME_MS: 25000,   // 20s (Crítico - Novo Requisito)
     
     LONG_BLINK_TIME_MS: 1300,
@@ -18,8 +18,8 @@ const FACTORY_CONFIG = {
     MAR_THRESHOLD: 0.65,
     HEAD_RATIO_THRESHOLD: 0.85,
     
-    REQUIRED_LONG_BLINKS: 5,
-    REQUIRED_YAWNS: 5,
+    REQUIRED_LONG_BLINKS: 5,        
+    REQUIRED_YAWNS: 5,              
     
     role: 'VIGIA'
 };
