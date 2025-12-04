@@ -1083,6 +1083,28 @@ if (debugSliderHead) {
     debugSliderHead.addEventListener('change', saveCalibrationToFirebase);
 }
 
+// salva frame da ocorrência 
+// Torna global para o Detector conseguir chamar
+window.captureSnapshot = async () => {
+    if (!canvasElement) return null;
+
+    // Retorna uma Promise que resolve com a string Base64 da imagem
+    return new Promise((resolve) => {
+        // 'image/jpeg' com qualidade 0.5 gera uma string pequena (~30-50kb)
+        // Isso cabe tranquilamente dentro do limite de 1MB do documento do Firestore
+        const dataUrl = canvasElement.toDataURL('image/jpeg', 0.5);
+        
+        // Verifica se gerou algo válido (apenas segurança)
+        if (dataUrl && dataUrl.length > 100) {
+            console.log("📸 Snapshot convertido para Base64 (Tamanho: " + Math.round(dataUrl.length/1024) + "KB)");
+            resolve(dataUrl);
+        } else {
+            console.warn("⚠️ Falha ao gerar snapshot.");
+            resolve(null);
+        }
+    });
+};
+
 // Listener do Clique
 if (btnFabCamera) {
     btnFabCamera.addEventListener('click', () => {

@@ -765,7 +765,7 @@ function renderGroupedTable(logs) {
             <th style="width: 120px;">HORÁRIO</th>
             <th>COLABORADOR</th>
             <th>OCORRÊNCIA</th>
-            <th style="text-align: right;">DETALHES</th>
+            <th style="text-align: right;">DETALHES / FOTO</th>
             ${isOwner ? '<th style="width: 50px;"></th>' : ''} 
         `;
     }
@@ -807,19 +807,25 @@ function renderGroupedTable(logs) {
         let badgeClass = (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') ? 'warning' : 'bg-danger';
         let badgeHtml = `<span class="badge ${badgeClass}" style="${badgeClass === 'warning' ? 'background: rgba(255, 149, 0, 0.2); color: #FF9500;' : ''}">${summaryText}</span>`;
 
+        // --- CORREÇÃO: BOTÃO NA LINHA PRINCIPAL (SINGLE MODE) ---
+        const mainSnapshotBtn = (!isMultiple && lastLog.snapshot) ? `
+            <button class="btn-icon-danger btn-view-snap" style="margin-right:8px; padding: 4px; vertical-align: middle; border: 1px solid rgba(255,208,40,0.3);" data-snap="${lastLog.snapshot}" title="Ver Foto">
+                <span class="material-icons-round" style="color: var(--primary); font-size: 18px;">photo_camera</span>
+            </button>
+        ` : '';
+
         let actionHtml = '';
         if (lastLog.details) {
-            actionHtml = `<span style="font-size: 0.85rem; color: var(--text-muted);">${lastLog.details}</span>`;
+            actionHtml = `<div style="display:flex; align-items:center; justify-content: flex-end;">${mainSnapshotBtn}<span style="font-size: 0.85rem; color: var(--text-muted);">${lastLog.details}</span></div>`;
         } else if (isMultiple) {
             actionHtml = `<span class="material-icons-round" id="icon-group-${index}" style="color: var(--text-muted); transition: 0.3s;">expand_more</span>`;
+        } else {
+            // Se não tem detalhes e é único, mostra só o botão se existir
+             actionHtml = mainSnapshotBtn || '';
         }
 
         const groupId = `group-${index}`;
         
-        // Botão Delete (Lixeira) para a linha principal
-        // Se for grupo, deleta o grupo inteiro (implementação avançada) ou avisa.
-        // Por segurança, vamos permitir deletar individualmente dentro do grupo, 
-        // mas se for item único, deleta direto.
         let deleteBtn = '';
         if (isOwner) {
             if (!isMultiple) {
@@ -853,11 +859,19 @@ function renderGroupedTable(logs) {
 
         if (isMultiple) {
             let detailsHtml = '';
+            
+            // --- LOOP INTERNO DOS DETALHES ---
             group.items.forEach(item => {
                 const iTime = item.timestamp.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 const desc = item.details ? `<strong>${item.reason}</strong> - ${item.details}` : item.reason;
                 
-                // Botão Delete Individual dentro do grupo
+                // Botão para itens dentro do grupo
+                const snapshotBtn = item.snapshot ? `
+                    <button class="btn-icon-danger btn-view-snap" style="margin-right:8px; padding: 4px;" data-snap="${item.snapshot}" title="Ver Foto">
+                        <span class="material-icons-round" style="color: var(--primary); font-size: 16px;">photo_camera</span>
+                    </button>
+                ` : '';
+
                 const itemDelete = isOwner ? `
                     <button class="btn-icon-danger" onclick="confirmDeleteOne('${item.uid}', '${item.dateFolder}', '${item.id}')" title="Apagar Item">
                         <span class="material-icons-round" style="font-size: 18px;">delete</span>
@@ -866,14 +880,15 @@ function renderGroupedTable(logs) {
 
                 detailsHtml += `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                        <div style="display:flex; gap: 15px;">
+                        <div style="display:flex; gap: 10px; align-items: center;">
                             <span style="font-family: monospace; color: var(--text-muted); font-size: 0.85rem;">${iTime}</span>
-                            <span style="color: #fff; font-size: 0.9rem;">${desc}</span>
+                            ${snapshotBtn} <span style="color: #fff; font-size: 0.9rem;">${desc}</span>
                         </div>
                         ${itemDelete}
                     </div>
                 `;
             });
+            
             tableBody.innerHTML += `
                 <tr id="${groupId}" style="display: none; background: rgba(255,255,255,0.02);">
                     <td colspan="${isOwner ? 5 : 4}" style="padding: 0 20px 20px 20px;">
@@ -1216,6 +1231,35 @@ function exportLogsToCSV() {
     link.click();
     document.body.removeChild(link);
 }
+
+// --- VISUALIZADOR DE SNAPSHOTS (MODO SEGURO) ---
+
+// Este listener global captura cliques em qualquer botão de foto gerado dinamicamente
+document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.btn-view-snap');
+    if (btn) {
+        const imageData = btn.getAttribute('data-snap');
+        if (imageData) {
+            // Abre uma nova janela em branco e escreve o HTML da imagem dentro
+            // Isso contorna bloqueios de segurança de abrir Data URLs diretamente
+            const win = window.open("");
+            if (win) {
+                win.document.write(`
+                    <html>
+                    <head>
+                        <title>Snapshot de Segurança</title>
+                        <style>body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }</style>
+                    </head>
+                    <body>
+                        <img src="${imageData}" style="max-width: 100%; max-height: 100%; border: 2px solid #FFD028; box-shadow: 0 0 20px rgba(255, 208, 40, 0.2);">
+                    </body>
+                    </html>
+                `);
+            }
+        }
+    }
+});
+
 // --- FECHAMENTO GLOBAL DE MODAIS (ESC & CLIQUE FORA) ---
 
 // 1. Fechar com tecla ESC

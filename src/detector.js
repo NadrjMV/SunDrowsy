@@ -3,9 +3,9 @@ import { db, auth } from './firebase-config.js';
 // --- CONFIGURAÇÕES PADRÃO ---
 const FACTORY_CONFIG = {
     // Tempos
-    CRITICAL_TIME_MS: 3000,        // 15s (Sono Profundo)
+    CRITICAL_TIME_MS: 3000,        // 3s (Sono Profundo - Ajustado conforme logs)
     MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
-    HEAD_DOWN_TIME_MS: 5000,       // 20s (Cabeça baixa)
+    HEAD_DOWN_TIME_MS: 5000,       // 5s (Cabeça baixa)
     HEAD_CRITICAL_TIME_MS: 20000,   // 20s (Crítico - Novo Requisito)
     
     LONG_BLINK_TIME_MS: 1300,        
@@ -100,7 +100,7 @@ export class DrowsinessDetector {
         }
     }
 
-    // --- LÓGICA DE CABEÇA (ATUALIZADA PARA 20s CRÍTICO) ---
+    // --- LÓGICA DE CABEÇA ---
     processHeadTilt(currentRatio, pitchRatio) {
         if (!this.state.monitoring || !this.state.isCalibrated) return;
 
@@ -142,29 +142,24 @@ export class DrowsinessDetector {
                 this.state.hasLoggedHeadDown = false;
                 this.state.hasLoggedHeadCritical = false;
                 this.state.isHeadDown = false;
-                // ⚠️ REMOVIDO: stopAlarm() .
             }
         }
     }
 
     processDetection(leftEAR, rightEAR, mar) {
-    if (!this.state.monitoring || !this.state.isCalibrated) return;
+        if (!this.state.monitoring || !this.state.isCalibrated) return;
 
-    const now = Date.now();
-    const cfg = this.config;
+        const now = Date.now();
+        const cfg = this.config;
 
-    // Reset janela
-    if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
-        this.state.longBlinksCount = 0;
-        this.state.yawnCount = 0; 
-        this.state.hasLoggedFatigue = false; 
-        this.state.longBlinksWindowStart = now;
-        this.updateUICounters(); 
-    }
-
-    // --- DEFINIÇÃO ÚNICA DE OLHO FECHADO (MESMA DO DEBUG) ---
-    const earAvg = (leftEAR + rightEAR) / 2;
-    const isClosedRaw = earAvg < cfg.EAR_THRESHOLD;
+        // Reset janela
+        if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
+            this.state.longBlinksCount = 0;
+            this.state.yawnCount = 0; 
+            this.state.hasLoggedFatigue = false; 
+            this.state.longBlinksWindowStart = now;
+            this.updateUICounters(); 
+        }
 
         // Olhos
         const isClosed = (leftEAR < cfg.EAR_THRESHOLD) && (rightEAR < cfg.EAR_THRESHOLD);
@@ -179,7 +174,7 @@ export class DrowsinessDetector {
             this.state.recoveryFrames = 0;
         }
 
-        // Bocejo (ignora quando os olhos estão fechados para evitar falsos positivos)
+        // Bocejo (ignora quando os olhos estão fechados)
         if (!isEffectivelyClosed) {
             if (mar > cfg.MAR_THRESHOLD) {
                 if (this.state.mouthOpenSince === null) this.state.mouthOpenSince = now;
@@ -191,7 +186,6 @@ export class DrowsinessDetector {
                 this.state.isYawning = false;
             }
         } else {
-            // Se os olhos estão fechados, zera o rastreio de bocejo para não acumular
             this.state.mouthOpenSince = null;
             this.state.isYawning = false;
         }
@@ -200,16 +194,14 @@ export class DrowsinessDetector {
             if (this.state.eyesClosedSince === null) this.state.eyesClosedSince = now;
             const timeClosed = now - this.state.eyesClosedSince;
             
-            // Nível 1: Sono Profundo (Prioridade Máxima - Não agrupa, alerta imediato)
+            // Nível 1: Sono Profundo (Prioridade Máxima)
             if (timeClosed >= cfg.CRITICAL_TIME_MS) {
-                // Mudei o texto para incluir "PERIGO" para o Admin pegar
                 this.triggerAlarm(`PERIGO: SONO PROFUNDO (${(timeClosed/1000).toFixed(1)}s)`);
                 return;
             } 
             
-            // Nível 2: Microssono (Com Agrupamento de Log)
+            // Nível 2: Microssono
             if (this.state.longBlinksCount >= 2 && timeClosed >= cfg.MICROSLEEP_TIME_MS) {
-                // Toca som NA HORA, mas o log vai ser processado diferente
                 this.triggerMicrosleepEvent(timeClosed);
                 return;
             }
@@ -266,9 +258,8 @@ export class DrowsinessDetector {
         }
     }
 
-    // --- NOVA LÓGICA DE MICROSSONO (SOM IMEDIATO, LOG AGRUPADO E SOMADO) ---
+    // --- MICROSSONO (SOM IMEDIATO, LOG AGRUPADO) ---
     triggerMicrosleepEvent(duration) {
-        // 1. Feedback Imediato (Segurança)
         if (!this.state.isAlarmActive) {
             this.state.isAlarmActive = true;
             this.audioManager.playAlert();
@@ -276,46 +267,33 @@ export class DrowsinessDetector {
             this.onStatusChange({ alarm: true, text: "MICROSSONO" });
         }
 
-        // 2. Lógica de Agrupamento de Logs ROBUSTA
-        // Se já tem um timer rodando, cancela ele e acumula o tempo
         if (this.microsleepBuffer.timer) {
             clearTimeout(this.microsleepBuffer.timer);
         }
 
         this.microsleepBuffer.active = true;
         
-        // Se é um evento contínuo (loop), usamos o duration atual. 
-        // Se fosse eventos separados, somariamos. 
-        // Para simplificar: consideramos o MAIOR duration deste bloco como o evento.
-        // Ou, se você prefere somar eventos distintos:
-        // this.microsleepBuffer.accumulatedTime += duration; (Cuidado com duplicação em loop)
-        
-        // Ajuste: Vamos usar o duration passado (tempo desde fechar olho) como o valor deste evento.
-        // O acumulador vai guardar o "pior" evento deste cluster.
         if (duration > this.microsleepBuffer.accumulatedTime) {
             this.microsleepBuffer.accumulatedTime = duration;
         }
         
-        // Define um timeout. Se o usuário abrir o olho e ficar 5s sem fechar de novo, enviamos o log.
         this.microsleepBuffer.timer = setTimeout(() => {
-            // Tempo de enviar o log final consolidado
             const totalSec = (this.microsleepBuffer.accumulatedTime / 1000).toFixed(1);
             const reason = `MICROSSONO DETECTADO (${totalSec}s)`;
 
             this.logToFirebaseSmart(reason);
             
-            // Reset completo
             this.microsleepBuffer.active = false;
             this.microsleepBuffer.accumulatedTime = 0;
             this.microsleepBuffer.timer = null;
         }, 5000); 
     }
 
-    // Função Padrão de Alarme (Logs imediatos)
-    triggerAlarm(reason, playSound = true) {
+    // Função Padrão de Alarme (Logs imediatos COM FOTO)
+    async triggerAlarm(reason, playSound = true) {
         const now = Date.now();
         
-        // Anti-spam de log (3s) para alarmes comuns
+        // Anti-spam de log (3s)
         if (now - this.state.lastLogTimestamp < 3000) return; 
 
         console.warn("🚨 ALARME DISPARADO:", reason);
@@ -329,8 +307,43 @@ export class DrowsinessDetector {
         this.onStatusChange({ alarm: true, text: reason });
         this.updateUI(reason); 
         
-        // Envia log Imediato
-        this.logToFirebaseSmart(reason);
+        // --- LÓGICA DE SNAPSHOT BASE64 ---
+        if (auth.currentUser && window.captureSnapshot) {
+            // Captura o frame atual em Base64
+            window.captureSnapshot().then(base64Image => {
+                // Passa a string gigante direto para o log
+                this.logToFirebaseSmart(reason, base64Image);
+            });
+        } else {
+            this.logToFirebaseSmart(reason, null);
+        }
+    }
+
+    // --- ATUALIZAÇÃO DO LOG (ÚNICA VERSÃO - A CORRETA) ---
+    logToFirebaseSmart(reason, snapshotData = null) { 
+        if(!auth.currentUser) return;
+
+        setTimeout(() => {
+            const date = new Date();
+            const folder = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+            
+            const payload = {
+                timestamp: date,
+                type: "ALARM",
+                reason: reason,
+                role: this.config.role,
+                fatigue_level: `P:${this.state.longBlinksCount} | B:${this.state.yawnCount}`,
+                userName: auth.currentUser.displayName || 'Usuário',
+                uid: auth.currentUser.uid,
+                snapshot: snapshotData // <--- AQUI ESTÁ A FOTO SENDO SALVA
+            };
+
+            db.collection('logs')
+                .doc(auth.currentUser.uid)
+                .collection(folder)
+                .add(payload)
+                .catch(e => console.error("Erro Log Firebase:", e));
+        }, 0);
     }
 
     stopAlarm() {
@@ -362,7 +375,6 @@ export class DrowsinessDetector {
     }
     
     updateUICounters() {
-        // ... (mantido igual) ...
         const blink = this.state.longBlinksCount;
         const yawn = this.state.yawnCount;
         if (this.state.lastUiBlink === blink && this.state.lastUiYawn === yawn) return;
@@ -380,34 +392,5 @@ export class DrowsinessDetector {
                 levelEl.innerText = "ATIVO"; levelEl.className = "value safe";
             }
         }
-    }
-
-    // --- FUNÇÃO DE LOG SIMPLIFICADA (SEM LÓGICA DE ESTADO INTERNO) ---
-    logToFirebaseSmart(reason) {
-        if(!auth.currentUser) return;
-
-        // A lógica de acumulação agora vive exclusivamente no microsleepBuffer/triggerMicrosleepEvent.
-        // Esta função apenas executa a ordem de gravação.
-
-        setTimeout(() => {
-            const date = new Date();
-            const folder = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-            
-            const payload = {
-                timestamp: date,
-                type: "ALARM",
-                reason: reason,
-                role: this.config.role,
-                fatigue_level: `P:${this.state.longBlinksCount} | B:${this.state.yawnCount}`,
-                userName: auth.currentUser.displayName || 'Usuário',
-                uid: auth.currentUser.uid
-            };
-
-            db.collection('logs')
-                .doc(auth.currentUser.uid)
-                .collection(folder)
-                .add(payload)
-                .catch(e => console.error("Erro Log Firebase:", e));
-        }, 0);
     }
 }
