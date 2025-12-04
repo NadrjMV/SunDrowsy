@@ -1009,34 +1009,63 @@ function updateWaveform(currentEAR, threshold) {
     waveformCtx.shadowBlur = 0;
 }
 
+// --- FUNÇÃO PARA SALVAR NO FIREBASE ---
+const saveCalibrationToFirebase = async () => {
+    if (!auth.currentUser || !detector) return;
+
+    console.log("💾 Salvando ajustes no perfil...");
+
+    try {
+        await db.collection('users').doc(auth.currentUser.uid).set({
+            calibration: {
+                // Pega os valores atuais que estão na memória do detector (já atualizados pelo slider)
+                EAR_THRESHOLD: detector.config.EAR_THRESHOLD,
+                HEAD_RATIO_THRESHOLD: detector.config.HEAD_RATIO_THRESHOLD,
+                // Importante manter o MAR (boca) mesmo sem slider, pra não perder a calibração dele
+                MAR_THRESHOLD: detector.config.MAR_THRESHOLD 
+            }
+        }, { merge: true }); // 'merge' garante que não apague outros dados do user
+        
+        console.log("✅ Ajustes sincronizados com sucesso.");
+    } catch (error) {
+        console.error("❌ Erro ao salvar ajustes:", error);
+    }
+};
+
 // --- EVENT LISTENERS DOS SLIDERS ---
 
 const debugSliderEyes = document.getElementById('debug-slider-eyes');
 const debugThreshValEyes = document.getElementById('debug-thresh-val-eyes');
 
 if (debugSliderEyes) {
+    // Evento INPUT: Atualiza visual e lógica local em tempo real (sem gravar no banco)
     debugSliderEyes.addEventListener('input', (e) => {
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.EAR_THRESHOLD = newVal;
-            console.log(`👁️ AJUSTE OLHOS: Novo Limite = ${newVal}`);
         }
         if(debugThreshValEyes) debugThreshValEyes.innerText = newVal.toFixed(2);
     });
+
+    // Evento CHANGE: Dispara SÓ quando solta o mouse/dedo -> Grava no Banco
+    debugSliderEyes.addEventListener('change', saveCalibrationToFirebase);
 }
 
 const debugSliderHead = document.getElementById('debug-slider-head');
 const debugThreshValHead = document.getElementById('debug-thresh-val-head');
 
 if (debugSliderHead) {
+    // Evento INPUT: Visual e Local
     debugSliderHead.addEventListener('input', (e) => {
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.HEAD_RATIO_THRESHOLD = newVal;
-            console.log(`🤕 AJUSTE CABEÇA: Novo Limite = ${newVal}`);
         }
         if(debugThreshValHead) debugThreshValHead.innerText = newVal.toFixed(2);
     });
+
+    // Evento CHANGE: Grava no Banco
+    debugSliderHead.addEventListener('change', saveCalibrationToFirebase);
 }
 
 // Listener do Clique
