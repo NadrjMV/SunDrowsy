@@ -1,4 +1,6 @@
 import { auth, db, googleProvider } from './firebase-config.js';
+// Import da config nova
+import { APP_CONFIG } from './config.js';
 
 // ELEMENTOS KPI
 const kpiAlerts = document.getElementById('kpi-alerts');
@@ -49,6 +51,24 @@ let currentUserRole = 'USER';
 
 window.destroyerMode = false;
 
+// Injeta versão no footer da sidebar (Admin)
+(function injectAdminVersion() {
+    const footer = document.querySelector('.sidebar .dev-footer'); // seletor mais específico caso tenha outros footers
+    if (footer) {
+        // Cria o elemento da versão
+        const verSpan = document.createElement('span');
+        verSpan.style.display = 'block';
+        verSpan.style.marginTop = '2px';
+        verSpan.style.opacity = '0.3';
+        verSpan.style.fontSize = '0.6rem';
+        verSpan.style.fontFamily = 'monospace';
+        verSpan.innerText = `v${APP_CONFIG.VERSION}`;
+        
+        // Adiciona ao final do footer existente
+        footer.appendChild(verSpan);
+    }
+})();
+
 // --- AUTH & INIT ---
 auth.onAuthStateChanged(async (user) => {
     if (!user) {
@@ -66,6 +86,9 @@ auth.onAuthStateChanged(async (user) => {
         }
 
         console.log(`🔓 Admin logado: ${role}`);
+        
+        // Verifica permissão e ATIVA o modo destruidor automaticamente se for OWNER
+        checkOwnerPermissions(user.uid);
         
         // --- CONFIGURAÇÃO DA FOTO DE PERFIL (CLIQUE) ---
         const adminPhoto = document.getElementById('admin-photo');
@@ -102,6 +125,48 @@ auth.onAuthStateChanged(async (user) => {
         window.location.href = 'index.html';
     }
 });
+
+// Verifica permissão e ATIVA o modo destruidor automaticamente se for OWNER
+function checkOwnerPermissions(uid) {
+    if (!uid) return;
+    
+    db.collection('users').doc(uid).get().then(doc => {
+        if (doc.exists) {
+            currentUserRole = doc.data().role;
+            
+            // AQUI ESTÁ O SEGREDO:
+            // Se o banco diz que é OWNER, ativamos a UI de deletar automaticamente.
+            if (currentUserRole === 'OWNER') {
+                activateDestroyerUI(); 
+            }
+        }
+    });
+}
+
+// Função interna (não exposta no window) para ligar os botões
+function activateDestroyerUI() {
+    console.log("🔒 Painel de Controle: Modo Owner Ativo.");
+    
+    // 1. Seta a flag interna
+    window.destroyerMode = true; 
+
+    // 2. Mostra o Botão Mestre de Limpeza
+    const btnWipe = document.getElementById('btn-wipe-logs');
+    if(btnWipe) {
+        btnWipe.style.display = 'inline-flex';
+        btnWipe.disabled = false;
+        btnWipe.style.opacity = '1';
+        btnWipe.style.cursor = 'pointer';
+    }
+
+    // 3. Atualiza a tabela para mostrar as lixeirinhas individuais
+    // (Reutiliza os logs que já estão na memória)
+    if(typeof filterAndRenderLogs === 'function') {
+        filterAndRenderLogs();
+    } else if (typeof renderGroupedTable === 'function') {
+        renderGroupedTable(mergeLunchEvents(globalRawLogs));
+    }
+}
 
 // --- NAVEGAÇÃO ---
 navBtns.forEach(btn => {
@@ -255,30 +320,14 @@ function setupRealtimeDashboard(period) {
         if(tableBody) tableBody.style.opacity = '1';
         
         // Verifica se é OWNER para mostrar botões de perigo
-        checkOwnerPermissions();
+        // (Já é chamado no auth, mas aqui atualiza caso mude algo em tempo real)
+        if(currentUserRole === 'OWNER') activateDestroyerUI();
 
         filterAndRenderLogs();
 
     }, (error) => {
         console.error("Erro Stream Logs:", error);
     });
-}
-
-// Verifica permissão e mostra/esconde botões
-function checkOwnerPermissions() {
-    const user = auth.currentUser;
-    if (user) {
-        db.collection('users').doc(user.uid).get().then(doc => {
-            if (doc.exists) {
-                currentUserRole = doc.data().role;
-                
-                // Se o banco diz que é OWNER, ativamos a UI de deletar automaticamente.
-                if (currentUserRole === 'OWNER') {
-                    activateDestroyerUI(); 
-                }
-            }
-        });
-    }
 }
 
 // NOVA FUNÇÃO DE FILTRAGEM
@@ -1167,33 +1216,6 @@ function exportLogsToCSV() {
     link.click();
     document.body.removeChild(link);
 }
-
-// --- CHEAT CODE (MODO DESTRUIDOR) ---
-// Função interna (não exposta no window) para ligar os botões
-function activateDestroyerUI() {
-    console.log("🔒 Painel de Controle: Modo Owner Ativo.");
-    
-    // 1. Seta a flag interna
-    window.destroyerMode = true; 
-
-    // 2. Mostra o Botão Mestre de Limpeza
-    const btnWipe = document.getElementById('btn-wipe-logs');
-    if(btnWipe) {
-        btnWipe.style.display = 'inline-flex';
-        btnWipe.disabled = false;
-        btnWipe.style.opacity = '1';
-        btnWipe.style.cursor = 'pointer';
-    }
-
-    // 3. Atualiza a tabela para mostrar as lixeirinhas individuais
-    // (Reutiliza os logs que já estão na memória)
-    if(typeof filterAndRenderLogs === 'function') {
-        filterAndRenderLogs();
-    } else if (typeof renderGroupedTable === 'function') {
-        renderGroupedTable(mergeLunchEvents(globalRawLogs));
-    }
-}
-
 // --- FECHAMENTO GLOBAL DE MODAIS (ESC & CLIQUE FORA) ---
 
 // 1. Fechar com tecla ESC

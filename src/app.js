@@ -2,12 +2,14 @@ import { auth, googleProvider, db } from './firebase-config.js';
 import { AudioManager } from './audio-manager.js';
 import { DrowsinessDetector } from './detector.js'; 
 import { LANDMARKS, calculateEAR, calculateMAR, calculateHeadTilt, calculatePitchRatio } from './vision-logic.js';
+// Import da config nova
+import { APP_CONFIG } from './config.js';
 
 // --- VARIAVEIS GLOBAIS DE LEITURA INSTANTANEA ---
 let currentLeftEAR = 0;
 let currentRightEAR = 0;
 let currentMAR = 0;
-let currentHeadRatio = 0; // Nova variável para cabeça
+let currentHeadRatio = 0; 
 let isCalibrating = false;
 
 let lastUiUpdate = 0;
@@ -60,6 +62,23 @@ const waveformCtx = waveformCanvas ? waveformCanvas.getContext('2d') : null;
 
 // Array para guardar o histórico dos últimos 50 frames (EAR)
 let earHistory = new Array(50).fill(0.3);
+
+// Injeta a versão na UI assim que carrega
+// Facilita saber qual versão o cliente tá rodando sem abrir console
+(function injectVersion() {
+    const footer = document.querySelector('.dev-footer');
+    if (footer) {
+        const verSpan = document.createElement('span');
+        verSpan.style.display = 'block';
+        verSpan.style.marginTop = '2px';
+        verSpan.style.opacity = '0.3';
+        verSpan.style.fontSize = '0.6rem';
+        verSpan.style.fontFamily = 'monospace';
+        verSpan.innerText = `v${APP_CONFIG.VERSION}`;
+        footer.appendChild(verSpan);
+    }
+    console.log(`🚀 ${APP_CONFIG.NAME} carregado - Versão: ${APP_CONFIG.VERSION}`);
+})();
 
 // Verifica se existe token na URL ao carregar
 const urlParams = new URLSearchParams(window.location.search);
@@ -376,7 +395,7 @@ if (debugSlider) {
             detector.config.EAR_THRESHOLD = newVal;
             
             console.clear();
-        //    console.log(`👁️ AJUSTE MANUAL OLHOS: Novo Limite = ${newVal}`);
+            console.log(`👁️ AJUSTE MANUAL OLHOS: Novo Limite = ${newVal}`);
         }
         
         debugThreshVal.innerText = newVal.toFixed(2);
@@ -690,7 +709,7 @@ function logLunchAction(actionType) {
             description: actionType === "LUNCH_START" ? "Início de Pausa Alimentar" : "Retorno de Pausa Alimentar",
             role: detector ? detector.config.role : 'DESCONHECIDO'
         })
-    //    .then(() => console.log(`📝 Log de Almoço (${actionType}) salvo.`))
+        .then(() => console.log(`📝 Log de Almoço (${actionType}) salvo.`))
         .catch(e => console.error("❌ Erro ao salvar log:", e));
 }
 
@@ -738,7 +757,7 @@ function toggleLunchState(active) {
         localStorage.setItem(LUNCH_KEY, new Date().toDateString());
         
         logLunchAction("LUNCH_START");
-    //    console.log("🍔 Almoço INICIADO. Tela travada.");
+        console.log("🍔 Almoço INICIADO. Tela travada.");
 
     } else {
         // --- FINALIZANDO ALMOÇO ---
@@ -754,7 +773,7 @@ function toggleLunchState(active) {
         }
         
         logLunchAction("LUNCH_END");
-    //    console.log("▶️ Almoço FINALIZADO. Sistema retomado.");
+        console.log("▶️ Almoço FINALIZADO. Sistema retomado.");
     }
 }
 
@@ -988,7 +1007,7 @@ if (debugSliderEyes) {
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.EAR_THRESHOLD = newVal;
-        //    console.log(`👁️ AJUSTE OLHOS: Novo Limite = ${newVal}`);
+            console.log(`👁️ AJUSTE OLHOS: Novo Limite = ${newVal}`);
         }
         if(debugThreshValEyes) debugThreshValEyes.innerText = newVal.toFixed(2);
     });
@@ -1002,7 +1021,7 @@ if (debugSliderHead) {
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.HEAD_RATIO_THRESHOLD = newVal;
-        //    console.log(`🤕 AJUSTE CABEÇA: Novo Limite = ${newVal}`);
+            console.log(`🤕 AJUSTE CABEÇA: Novo Limite = ${newVal}`);
         }
         if(debugThreshValHead) debugThreshValHead.innerText = newVal.toFixed(2);
     });
