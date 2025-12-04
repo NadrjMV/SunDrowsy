@@ -13,7 +13,7 @@ export class AudioManager {
             const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
             this.buffer = await this.audioContext.decodeAudioData(arrayBuffer);
-            console.log("🔊 Áudio carregado com sucesso!");
+        //    console.log("🔊 Áudio carregado com sucesso!");
         } catch (e) {
             console.error("❌ Erro ao carregar áudio:", e);
         }
@@ -48,7 +48,7 @@ export class AudioManager {
         source.start(0);
         this.currentSource = source;
         this.isPlaying = true;
-        console.log("🔊 TOCANDO ALARME!");
+    //    console.log("🔊 TOCANDO ALARME!");
     }
 
     stopAlert() {
@@ -59,6 +59,6 @@ export class AudioManager {
             this.currentSource = null;
         }
         this.isPlaying = false;
-        console.log("🔇 Alarme parado.");
+    //    console.log("🔇 Alarme parado.");
     }
 }

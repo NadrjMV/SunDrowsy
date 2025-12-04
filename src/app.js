@@ -376,7 +376,7 @@ if (debugSlider) {
             detector.config.EAR_THRESHOLD = newVal;
             
             console.clear();
-            console.log(`👁️ AJUSTE MANUAL OLHOS: Novo Limite = ${newVal}`);
+        //    console.log(`👁️ AJUSTE MANUAL OLHOS: Novo Limite = ${newVal}`);
         }
         
         debugThreshVal.innerText = newVal.toFixed(2);
@@ -690,7 +690,7 @@ function logLunchAction(actionType) {
             description: actionType === "LUNCH_START" ? "Início de Pausa Alimentar" : "Retorno de Pausa Alimentar",
             role: detector ? detector.config.role : 'DESCONHECIDO'
         })
-        .then(() => console.log(`📝 Log de Almoço (${actionType}) salvo.`))
+    //    .then(() => console.log(`📝 Log de Almoço (${actionType}) salvo.`))
         .catch(e => console.error("❌ Erro ao salvar log:", e));
 }
 
@@ -738,7 +738,7 @@ function toggleLunchState(active) {
         localStorage.setItem(LUNCH_KEY, new Date().toDateString());
         
         logLunchAction("LUNCH_START");
-        console.log("🍔 Almoço INICIADO. Tela travada.");
+    //    console.log("🍔 Almoço INICIADO. Tela travada.");
 
     } else {
         // --- FINALIZANDO ALMOÇO ---
@@ -754,7 +754,7 @@ function toggleLunchState(active) {
         }
         
         logLunchAction("LUNCH_END");
-        console.log("▶️ Almoço FINALIZADO. Sistema retomado.");
+    //    console.log("▶️ Almoço FINALIZADO. Sistema retomado.");
     }
 }
 
@@ -988,7 +988,7 @@ if (debugSliderEyes) {
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.EAR_THRESHOLD = newVal;
-            console.log(`👁️ AJUSTE OLHOS: Novo Limite = ${newVal}`);
+        //    console.log(`👁️ AJUSTE OLHOS: Novo Limite = ${newVal}`);
         }
         if(debugThreshValEyes) debugThreshValEyes.innerText = newVal.toFixed(2);
     });
@@ -1002,7 +1002,7 @@ if (debugSliderHead) {
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.HEAD_RATIO_THRESHOLD = newVal;
-            console.log(`🤕 AJUSTE CABEÇA: Novo Limite = ${newVal}`);
+        //    console.log(`🤕 AJUSTE CABEÇA: Novo Limite = ${newVal}`);
         }
         if(debugThreshValHead) debugThreshValHead.innerText = newVal.toFixed(2);
     });
