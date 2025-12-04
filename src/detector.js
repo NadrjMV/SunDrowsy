@@ -3,23 +3,23 @@ import { db, auth } from './firebase-config.js';
 // --- CONFIGURAÇÕES PADRÃO ---
 const FACTORY_CONFIG = {
     // Tempos
-    CRITICAL_TIME_MS: 3000,        // 3s (Sono Profundo - Ajustado conforme logs)
+    CRITICAL_TIME_MS: 20000,        // 20s (Sono Profundo - Ajustado conforme logs)
     MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
-    HEAD_DOWN_TIME_MS: 5000,       // 5s (Cabeça baixa)
-    HEAD_CRITICAL_TIME_MS: 20000,   // 20s (Crítico - Novo Requisito)
+    HEAD_DOWN_TIME_MS: 10000,       // 10s (Cabeça baixa)
+    HEAD_CRITICAL_TIME_MS: 25000,   // 20s (Crítico - Novo Requisito)
     
-    LONG_BLINK_TIME_MS: 1300,        
-    BLINK_WINDOW_MS: 60000,         
+    LONG_BLINK_TIME_MS: 1300,
+    BLINK_WINDOW_MS: 60000,
     
-    YAWN_TIME_MS: 4000,             
-    YAWN_RESET_TIME: 5000,          
+    YAWN_TIME_MS: 4000,
+    YAWN_RESET_TIME: 5000,
 
     EAR_THRESHOLD: 0.22,
     MAR_THRESHOLD: 0.65,
-    HEAD_RATIO_THRESHOLD: 0.85,     
+    HEAD_RATIO_THRESHOLD: 0.85,
     
-    REQUIRED_LONG_BLINKS: 5,        
-    REQUIRED_YAWNS: 5,              
+    REQUIRED_LONG_BLINKS: 5,
+    REQUIRED_YAWNS: 5,
     
     role: 'VIGIA'
 };
