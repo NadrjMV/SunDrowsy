@@ -272,16 +272,10 @@ function checkOwnerPermissions() {
             if (doc.exists) {
                 currentUserRole = doc.data().role;
                 
-                // COMENTEI A LINHA QUE MOSTRAVA O BOTÃO
-                /* const btnWipe = document.getElementById('btn-wipe-logs');
-                if (currentUserRole === 'OWNER' && btnWipe) {
-                    btnWipe.style.display = 'inline-flex';
-                } 
-                */
-
-                // Apenas re-renderiza a tabela para mostrar as lixeirinhas individuais (se quiser)
-                // Se quiser esconder até as individuais, comente a linha abaixo também.
-                renderGroupedTable(mergeLunchEvents(globalRawLogs)); 
+                // Se o banco diz que é OWNER, ativamos a UI de deletar automaticamente.
+                if (currentUserRole === 'OWNER') {
+                    activateDestroyerUI(); 
+                }
             }
         });
     }
@@ -1175,11 +1169,14 @@ function exportLogsToCSV() {
 }
 
 // --- CHEAT CODE (MODO DESTRUIDOR) ---
-window.enableDestroyerMode = function() {
-    // 1. Ativa a flag global
-    window.destroyerMode = true;
+// Função interna (não exposta no window) para ligar os botões
+function activateDestroyerUI() {
+    console.log("🔒 Painel de Controle: Modo Owner Ativo.");
     
-    // 2. Mostra o Botão Mestre
+    // 1. Seta a flag interna
+    window.destroyerMode = true; 
+
+    // 2. Mostra o Botão Mestre de Limpeza
     const btnWipe = document.getElementById('btn-wipe-logs');
     if(btnWipe) {
         btnWipe.style.display = 'inline-flex';
@@ -1188,17 +1185,14 @@ window.enableDestroyerMode = function() {
         btnWipe.style.cursor = 'pointer';
     }
 
-    // 3. Re-renderiza a tabela para mostrar as lixeirinhas individuais
-    // (Usa a variável globalRawLogs que já está na memória)
+    // 3. Atualiza a tabela para mostrar as lixeirinhas individuais
+    // (Reutiliza os logs que já estão na memória)
     if(typeof filterAndRenderLogs === 'function') {
         filterAndRenderLogs();
-    } else {
-        // Fallback se a função de filtro não estiver acessível
+    } else if (typeof renderGroupedTable === 'function') {
         renderGroupedTable(mergeLunchEvents(globalRawLogs));
     }
-
-    console.log("🔓 MODO DESTRUIDOR ATIVADO: Tenha cuidado.");
-};
+}
 
 // --- FECHAMENTO GLOBAL DE MODAIS (ESC & CLIQUE FORA) ---
 
