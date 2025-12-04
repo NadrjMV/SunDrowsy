@@ -35,7 +35,7 @@
     <section id="app-view" class="view hidden">
         
         <nav class="sidebar">
-            <div class="brand-title" style="font-size: 1.5rem; text-align: left; margin-bottom: 2rem;">Sun<span>Drowsy</span></div>
+            <div class="brand-title" style="font-size: 1.5rem; text-align: left; margin-bottom: 1.5rem;">Sun<span>Drowsy</span></div>
 
             <div class="user-badge" id="btn-open-profile" title="Editar Perfil">
                 <img id="user-photo" src="" alt="User">
@@ -45,38 +45,46 @@
                 </div>
             </div>
             
-            <button class="nav-btn active"><span class="material-icons-round">analytics</span> Monitoramento</button>
-            <button class="nav-btn" id="btn-tutorial-open"><span class="material-icons-round">school</span> Guia Rápido</button>
-
-            <div class="debug-panel" style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); margin-top: 20px;">
-                <h4 style="margin: 0 0 10px 0; font-size: 0.8rem; color: var(--primary); text-transform: uppercase;">Ajuste Fino (Olhos)</h4>
-                <input type="range" id="debug-slider" min="0.10" max="0.40" step="0.01" style="width: 100%; cursor: pointer;">
-                
-                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 5px;">
-                    <span>Leitura Atual:</span>
-                    <span id="debug-live-val" style="color: #fff; font-weight: bold;">0.00</span>
-                </div>
-
-                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 5px;">
-                    <span>Limite (Trigger):</span>
-                    <span id="debug-thresh-val" style="color: var(--primary); font-weight: bold;">--</span>
-                </div>
-
-                <input type="range" id="debug-slider" min="0.50" max="1.50" step="0.01" style="width: 100%; cursor: pointer;">
-                
-                <small id="debug-state" style="display: block; margin-top: 8px; text-align: center; font-weight: bold; color: var(--safe);">ESTADO: NORMAL</small>
+            <div style="display: flex; flex-direction: column; gap: 5px; margin-bottom: 15px;">
+                <button class="nav-btn active" style="padding: 10px 15px;"><span class="material-icons-round" style="font-size: 1.2rem;">analytics</span> Monitoramento</button>
+                <button class="nav-btn" id="btn-tutorial-open" style="padding: 10px 15px;"><span class="material-icons-round" style="font-size: 1.2rem;">school</span> Guia Rápido</button>
             </div>
-            <div style="flex: 1;"></div>
+
+            <div class="debug-panel" style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 2px;">
+                
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 0.7rem; color: var(--primary); font-weight: 700; text-transform: uppercase;">Olhos</span>
+                    <div style="font-size: 0.65rem; color: var(--text-muted);">
+                        Atual: <strong id="debug-live-val-eyes" style="color: #fff;">0.00</strong> | 
+                        Trig: <strong id="debug-thresh-val-eyes" style="color: var(--primary);">--</strong>
+                    </div>
+                </div>
+                <input type="range" id="debug-slider-eyes" min="0.10" max="0.40" step="0.01" style="width: 100%; cursor: pointer; margin: 4px 0;">
+
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                    <span style="font-size: 0.7rem; color: var(--primary); font-weight: 700; text-transform: uppercase;">Cabeça</span>
+                    <div style="font-size: 0.65rem; color: var(--text-muted);">
+                        Atual: <strong id="debug-live-val-head" style="color: #fff;">0.00</strong> | 
+                        Trigger: <strong id="debug-thresh-val-head" style="color: var(--primary);">--</strong>
+                    </div>
+                </div>
+                <input type="range" id="debug-slider-head" min="0.50" max="1.50" step="0.01" style="width: 100%; cursor: pointer; margin: 4px 0;">
+
+                <div style="height: 24px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.2); border-radius: 6px; margin-top: 5px;">
+                    <small id="debug-state" style="font-weight: bold; color: var(--safe); font-size: 0.7rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">ESTADO: NORMAL</small>
+                </div>
+            </div>
+            <div style="flex: 1; min-height: 10px;"></div>
                         
-            <div class="profile-selector">
-                <small style="color: var(--text-muted); font-size: 0.75rem; margin-bottom: 6px; display: block;">Modo de Operação:</small>
-                <select id="role-selector" class="glass-input" style="width: 100%;">
+            <div class="profile-selector" style="margin-bottom: 10px;">
+                <small style="color: var(--text-muted); font-size: 0.7rem; margin-bottom: 4px; display: block;">Modo:</small>
+                <select id="role-selector" class="glass-input" style="width: 100%; padding: 6px 10px; font-size: 0.8rem;">
                     <option value="VIGIA">Vigia / Segurança</option>
                 </select>
             </div>
             
-            <hr>
-            <button class="nav-btn logout" id="btn-logout"><span class="material-icons-round">power_settings_new</span> Desconectar</button>
+            <hr style="margin: 5px 0 10px 0;">
+            <button class="nav-btn logout" id="btn-logout" style="padding: 10px;"><span class="material-icons-round" style="font-size: 1.2rem;">power_settings_new</span> Sair</button>
 
             <div class="dev-footer">
                 Desenvolvido por 

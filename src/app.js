@@ -420,72 +420,43 @@ function onResults(results) {
         if (window.showCameraFeed) {
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
         }
-        // --------------------------
     }
 
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
 
-        // --- DESENHO DA MÁSCARA (VISUAL UPGRADE) ---
+        // --- DESENHO DA MÁSCARA ---
         if (!document.hidden) {
             if (window.showCameraFeed) {
                 // MODO CÂMERA LIGADA:
-                drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: 'rgba(0, 255, 255, 0.15)', lineWidth: 1});
-
-                // 2. Contorno do Rosto - Branco/Cinza
-                drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL, {color: 'rgba(255,255,255,0.5)', lineWidth: 2});
-
-                // 3. Destaque nos Olhos e Sobrancelhas (Foco da IA) - O Amarelo Marca
-                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#FFD028', lineWidth: 2});
-                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#FFD028', lineWidth: 2});
-                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYEBROW, {color: '#FFD028', lineWidth: 2});
-                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYEBROW, {color: '#FFD028', lineWidth: 2});
-
-                // 4. Boca - Um tom avermelhado/laranja para diferenciar
-                drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#FF453A', lineWidth: 2});
-                
-                // 5. Íris (Pontos focais)
-                drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_IRIS, {color: '#32D74B', lineWidth: 2});
-                drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_IRIS, {color: '#32D74B', lineWidth: 2});
+                drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1.5});
             
             } else {
-                // MODO CÂMERA DESLIGADA (HOLOGRÁFICO):
-                // Aqui desenhamos o modelo 3D completo e detalhado
-                
-                // 1. A Malha "Wireframe" (Triângulos) - Ciano Tecnológico bem suave
+                // MODO HOLOGRÁFICO:
                 drawConnectors(canvasCtx, landmarks, FACEMESH_TESSELATION, {color: 'rgba(0, 255, 255, 0.15)', lineWidth: 1});
-
-                // 2. Contorno do Rosto - Branco/Cinza
                 drawConnectors(canvasCtx, landmarks, FACEMESH_FACE_OVAL, {color: 'rgba(255,255,255,0.5)', lineWidth: 2});
-
-                // 3. Destaque nos Olhos e Sobrancelhas (Foco da IA) - Seu Amarelo Marca
                 drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYE, {color: '#FFD028', lineWidth: 2});
                 drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYE, {color: '#FFD028', lineWidth: 2});
                 drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_EYEBROW, {color: '#FFD028', lineWidth: 2});
                 drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_EYEBROW, {color: '#FFD028', lineWidth: 2});
-
-                // 4. Boca - Um tom avermelhado/laranja para diferenciar
                 drawConnectors(canvasCtx, landmarks, FACEMESH_LIPS, {color: '#FF453A', lineWidth: 2});
-                
-                // 5. Íris (Pontos focais)
                 drawConnectors(canvasCtx, landmarks, FACEMESH_RIGHT_IRIS, {color: '#32D74B', lineWidth: 2});
                 drawConnectors(canvasCtx, landmarks, FACEMESH_LEFT_IRIS, {color: '#32D74B', lineWidth: 2});
             }
         }
         
-        // Cálculos Matemáticos (Isso é leve, pode rodar a cada frame)
+        // Cálculos Matemáticos
         currentLeftEAR = calculateEAR(landmarks, LANDMARKS.LEFT_EYE);
         currentRightEAR = calculateEAR(landmarks, LANDMARKS.RIGHT_EYE);
         currentMAR = calculateMAR(landmarks);
         currentHeadRatio = calculateHeadTilt(landmarks); 
-        currentPitch = calculatePitchRatio(landmarks); // Seu novo cálculo
+        currentPitch = calculatePitchRatio(landmarks); 
 
-        // Média dos dois olhos para o gráfico
+        // Média dos dois olhos
         const avgEAR = (currentLeftEAR + currentRightEAR) / 2;
         
-        // Passa o EAR atual e o Threshold configurado no detector
+        // Atualiza Gráfico (EAR Waveform)
         if(detector) updateWaveform(avgEAR, detector.config.EAR_THRESHOLD);
-        // ---------------------------
 
         // Envia para a lógica de detecção
         if (detector && !isCalibrating) {
@@ -494,42 +465,47 @@ function onResults(results) {
         }
 
         // --- OTIMIZAÇÃO DE UI (THROTTLE) ---
-        // Só atualiza os textos e slider se passou 200ms (5 FPS de UI)
         const now = Date.now();
         if (now - lastUiUpdate > 200) {
             lastUiUpdate = now;
 
-            const debugLive = document.getElementById('debug-live-val');
+            const sliderEyes = document.getElementById('debug-slider-eyes');
+            const sliderHead = document.getElementById('debug-slider-head');
             const debugState = document.getElementById('debug-state');
-            const slider = document.getElementById('debug-slider');
 
-            // Calcula média EAR aqui para exibir
-            const avgEAR = (currentLeftEAR + currentRightEAR) / 2;
-
-            if (debugLive && detector) {
-                // Mostra o valor do EAR
-                debugLive.innerText = avgEAR.toFixed(3);
+            if (detector) {
+                // --- ATUALIZA PAINEL DE OLHOS ---
+                const eyesLiveEl = document.getElementById('debug-live-val-eyes');
+                const eyesThreshEl = document.getElementById('debug-thresh-val-eyes');
                 
-                if (document.activeElement !== slider) {
-                     const currentThresh = detector.config.EAR_THRESHOLD; // Lê config de EAR
-                     if (Math.abs(parseFloat(slider.value) - currentThresh) > 0.01) {
-                        slider.value = currentThresh;
-                        document.getElementById('debug-thresh-val').innerText = currentThresh.toFixed(2);
+                if(eyesLiveEl) eyesLiveEl.innerText = avgEAR.toFixed(3);
+                
+                // Sincroniza Slider Olhos (se não estiver arrastando)
+                if (document.activeElement !== sliderEyes) {
+                     const currEarThresh = detector.config.EAR_THRESHOLD;
+                     if (Math.abs(parseFloat(sliderEyes.value) - currEarThresh) > 0.01) {
+                        sliderEyes.value = currEarThresh;
+                        if(eyesThreshEl) eyesThreshEl.innerText = currEarThresh.toFixed(2);
                      }
                 }
 
-                // Lógica Visual baseada em Olhos
-                const isEyesClosed = avgEAR < detector.config.EAR_THRESHOLD;
-
-                if (isEyesClosed) {
-                    debugState.innerText = "DETECTADO: OLHOS FECHADOS 😴";
-                    debugState.style.color = "var(--danger)";
-                } else {
-                    debugState.innerText = "ESTADO: OLHOS ABERTOS 👀";
-                    debugState.style.color = "var(--safe)";
+                // --- ATUALIZA PAINEL DE CABEÇA ---
+                const headLiveEl = document.getElementById('debug-live-val-head');
+                const headThreshEl = document.getElementById('debug-thresh-val-head');
+                
+                if(headLiveEl) headLiveEl.innerText = currentHeadRatio.toFixed(3);
+                
+                // Sincroniza Slider Cabeça (se não estiver arrastando)
+                if (document.activeElement !== sliderHead) {
+                     const currHeadThresh = detector.config.HEAD_RATIO_THRESHOLD;
+                     if (Math.abs(parseFloat(sliderHead.value) - currHeadThresh) > 0.01) {
+                        sliderHead.value = currHeadThresh;
+                        if(headThreshEl) headThreshEl.innerText = currHeadThresh.toFixed(2);
+                     }
                 }
 
-                // Lógica Visual
+                // --- ESTADO GERAL (TEXTO) ---
+                const isEyesClosed = avgEAR < detector.config.EAR_THRESHOLD;
                 const isRatioLow = currentHeadRatio < detector.config.HEAD_RATIO_THRESHOLD;
                 const isLookingUp = currentPitch > 2.0;
 
@@ -537,7 +513,10 @@ function onResults(results) {
                     debugState.innerText = "BLOQUEIO: OLHANDO CIMA ⬆️";
                     debugState.style.color = "var(--primary)";
                 } else if (isRatioLow) {
-                    debugState.innerText = "DETECTADO: BAIXO ⬇️";
+                    debugState.innerText = "DETECTADO: CABEÇA BAIXA ⬇️";
+                    debugState.style.color = "var(--danger)";
+                } else if (isEyesClosed) {
+                    debugState.innerText = "DETECTADO: OLHOS FECHADOS 😴";
                     debugState.style.color = "var(--danger)";
                 } else {
                     debugState.innerText = "ESTADO: NORMAL ✅";
@@ -997,6 +976,36 @@ function updateWaveform(currentEAR, threshold) {
     
     // Reset de sombra para performance
     waveformCtx.shadowBlur = 0;
+}
+
+// --- EVENT LISTENERS DOS SLIDERS ---
+
+const debugSliderEyes = document.getElementById('debug-slider-eyes');
+const debugThreshValEyes = document.getElementById('debug-thresh-val-eyes');
+
+if (debugSliderEyes) {
+    debugSliderEyes.addEventListener('input', (e) => {
+        const newVal = parseFloat(e.target.value);
+        if (detector) {
+            detector.config.EAR_THRESHOLD = newVal;
+            console.log(`👁️ AJUSTE OLHOS: Novo Limite = ${newVal}`);
+        }
+        if(debugThreshValEyes) debugThreshValEyes.innerText = newVal.toFixed(2);
+    });
+}
+
+const debugSliderHead = document.getElementById('debug-slider-head');
+const debugThreshValHead = document.getElementById('debug-thresh-val-head');
+
+if (debugSliderHead) {
+    debugSliderHead.addEventListener('input', (e) => {
+        const newVal = parseFloat(e.target.value);
+        if (detector) {
+            detector.config.HEAD_RATIO_THRESHOLD = newVal;
+            console.log(`🤕 AJUSTE CABEÇA: Novo Limite = ${newVal}`);
+        }
+        if(debugThreshValHead) debugThreshValHead.innerText = newVal.toFixed(2);
+    });
 }
 
 // Listener do Clique
