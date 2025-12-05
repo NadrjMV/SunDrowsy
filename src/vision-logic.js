@@ -12,7 +12,10 @@ export const LANDMARKS = {
     // NOVOS PONTOS PARA FILTRO DE "OLHAR PRA CIMA"
     NOSE_TIP: 1,
     CHIN: 9,      // Ponto inferior do queixo (usando 152 as vezes oscila, 199 ou 9 sao bons)
-    GLABELLA: 168 // Ponto entre os olhos (fixo)
+    GLABELLA: 168, // Ponto entre os olhos (fixo)
+
+    // NOVO: Pontos laterais do rosto para referência de largura (Zygomatic bone)
+    FACE_WIDTH: [234, 454] 
 };
 
 function getDistance(p1, p2) {
@@ -37,8 +40,26 @@ export function calculateEAR(landmarks, indices) {
 
 export function calculateMAR(landmarks) {
     const indices = LANDMARKS.MOUTH_INNER;
-    return getDistance(landmarks[indices[0]], landmarks[indices[1]]) / 
-           getDistance(landmarks[indices[2]], landmarks[indices[3]]);
+    
+    // 1. Distâncias básicas
+    const vertical = getDistance(landmarks[indices[0]], landmarks[indices[1]]);
+    const horizontal = getDistance(landmarks[indices[2]], landmarks[indices[3]]); // 61 e 291 (Cantos da boca)
+
+    // 2. CORREÇÃO DE RISADA (SMILE REJECTION)
+    // Se a largura da boca for desproporcional à largura do rosto, é risada.
+    // Usamos os pontos 234 e 454 (extremidades do rosto) como referência estável.
+    const faceWidth = getDistance(landmarks[LANDMARKS.FACE_WIDTH[0]], landmarks[LANDMARKS.FACE_WIDTH[1]]);
+    
+    if (faceWidth > 0) {
+        // Se a boca ocupar mais que 45% da largura do rosto, consideramos "Sorriso Largo"
+        // Bocejos geralmente ficam entre 30-40%, Risadas passam de 45-50%
+        if ((horizontal / faceWidth) > 0.45) {
+            return 0.0; // Anula o MAR para evitar falso positivo
+        }
+    }
+
+    if (horizontal === 0) return 0.0;
+    return vertical / horizontal;
 }
 
 export function calculateHeadTilt(landmarks) {
