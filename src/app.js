@@ -12,6 +12,9 @@ let currentMAR = 0;
 let currentHeadRatio = 0; 
 let isCalibrating = false;
 
+// CORREÇÃO BACKGROUND: Substitui o intervalId por um Worker
+let detectionWorker = null;
+
 let lastProcessTime = 0; // Controle de FPS
 
 let lastUiUpdate = 0;
@@ -161,7 +164,7 @@ auth.onAuthStateChanged(async (user) => {
 
                 const inviteData = inviteDoc.data();
                 const now = new Date();
-                const expiresAt = inviteData.expiresAt.toDate(); 
+                const expiresAt = inviteData.expiresAt.toDate();
 
                 // Valida as regras do convite
                 if (!inviteData.active) throw new Error("⛔ Este convite foi cancelado.");
@@ -382,6 +385,13 @@ async function initSystem() {
         });
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
+            // FIX: Remove display:none e usa opacity 0 para garantir que o renderizador
+            // processe os frames, permitindo que o drawImage do snapshot funcione.
+            videoElement.style.display = 'block';
+            videoElement.style.opacity = '0';
+            videoElement.style.position = 'absolute';
+            videoElement.style.zIndex = '-999';
+
             videoElement.play();
             startDetectionLoop();
             detector.updateUI("SISTEMA ATIVO");
@@ -412,20 +422,11 @@ if (debugSlider) {
 }
 
 function stopSystem() {
-    //if (animationFrameId) {
-    //    cancelAnimationFrame(animationFrameId);
-    //    animationFrameId = null;
-    //}
-
-    // NOVO: Limpa o Intervalo de detecção
-    if (detectionIntervalId !== null) {
-        clearInterval(detectionIntervalId);
-        detectionIntervalId = null;
-    }
-    
-    if (tickerWorker) { 
-        tickerWorker.terminate(); 
-        tickerWorker = null; 
+    // Mata o Worker
+    if (detectionWorker) {
+        detectionWorker.terminate();
+        detectionWorker = null;
+        console.log("🛑 Worker de detecção encerrado.");
     }
 
     if (videoElement.srcObject) {
@@ -738,31 +739,38 @@ function hasLunchToday() {
 const DETECTION_FPS = 20;
 
 function startDetectionLoop() {
-    // 1. Garante que o loop não esteja rodando duas vezes
-    if (detectionIntervalId !== null) return;
-    
-    // 2. O novo loop de detecção (a cada 50ms)
-    detectionIntervalId = setInterval(() => {
-        // A lógica de throttling de FPS baseada em tempo (lastProcessTime) é removida
-        // porque o setInterval já garante a frequência mínima.
+    if (detectionWorker) return; // Já tá rodando
 
-        if (!isProcessingFrame) {
-            isProcessingFrame = true;
-            
-            // Chamar o FaceMesh.send é o que realmente inicia o processamento do frame
-            // e chama onResults quando termina.
-            try {
-                faceMesh.send({image: videoElement}).then(() => {
-                     isProcessingFrame = false; // Libera para o próximo ciclo
-                }).catch(error => {
-                     console.warn("Frame drop/Processamento Falhou:", error);
-                     isProcessingFrame = false; // Libera mesmo em falha para evitar travamento
-                });
-            } catch (error) {
-                 isProcessingFrame = false;
+    // Cria um script de Worker em tempo real (Blob)
+    // Esse script roda numa thread separada que o Chrome não consegue "pausar" facilmente
+    const workerBlob = new Blob([`
+        self.onmessage = function(e) {
+            if (e.data === "start") {
+                // Roda a 20 FPS (50ms) cravado, sem choro do navegador
+                setInterval(() => { postMessage("tick"); }, 50);
+            }
+        };
+    `], { type: "text/javascript" });
+
+    detectionWorker = new Worker(URL.createObjectURL(workerBlob));
+
+    detectionWorker.onmessage = function(e) {
+        if (e.data === "tick") {
+            // O Worker mandou processar. O Main Thread obedece.
+            if (!isProcessingFrame && faceMesh && videoElement && !videoElement.paused) {
+                isProcessingFrame = true;
+                
+                // Envia pro MediaPipe
+                faceMesh.send({image: videoElement})
+                    .then(() => { isProcessingFrame = false; })
+                    .catch(() => { isProcessingFrame = false; });
             }
         }
-    }, DETECTION_FPS); // Roda a cada 50ms
+    };
+
+    // Dá a partida no motor
+    detectionWorker.postMessage("start");
+    console.log("🚀 Worker de Background Iniciado (Anti-Throttle Ativo)");
 }
 
 function handleVisibilityChange() {
@@ -1129,6 +1137,12 @@ if (debugSliderHead) {
 window.captureSnapshot = async () => {
     // Verifica se o elemento de vídeo existe e está carregado
     if (!videoElement) return null;
+
+    // FIX: Se o vídeo não tiver dimensões (ex: display none), aborta para evitar erro ou imagem preta
+    if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+        console.warn("⚠️ Snapshot abortado: Vídeo sem dimensões detectadas (videoWidth=0).");
+        return null;
+    }
 
     // Retorna uma Promise que resolve com a string Base64 da imagem RAW
     return new Promise((resolve) => {

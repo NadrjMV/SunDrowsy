@@ -29,6 +29,7 @@ export class DrowsinessDetector {
         this.audioManager = audioManager;
         this.onStatusChange = onStatusChange;
         this.config = { ...FACTORY_CONFIG };
+        this.lastProcessTime = Date.now();
 
         this.state = {
             isCalibrated: false,
@@ -68,8 +69,9 @@ export class DrowsinessDetector {
         // Buffer para Microssono (Agrupamento Centralizado)
         this.microsleepBuffer = {
             active: false,
-            accumulatedTime: 0, // Acumulador real
-            timer: null
+            accumulatedTime: 0, 
+            timer: null,
+            snapshot: null // <--- Guarda a foto temporariamente
         };
     }
 
@@ -115,6 +117,7 @@ export class DrowsinessDetector {
                 this.state.headDownSince = Date.now();
             }
 
+            // ESTÁGIO 1: Aviso Rápido
             const duration = Date.now() - this.state.headDownSince;
 
             // ESTÁGIO 1: Aviso Rápido
@@ -152,6 +155,20 @@ export class DrowsinessDetector {
         const now = Date.now();
         const cfg = this.config;
 
+        // --- CORREÇÃO DE LAG (ANTI-TRAVAMENTO) ---
+        // Aumentei a tolerância para 2s. Com o Worker, isso raramente vai disparar.
+        // Se disparar, é pq o PC travou fisicamente, aí tem que resetar mesmo.
+        if (now - this.lastProcessTime > 2000) {
+            console.warn("⚠️ Lag extremo detectado (>2s). Resetando timers por segurança.");
+            this.state.eyesClosedSince = null;
+            this.state.mouthOpenSince = null;
+            this.state.headDownSince = null;
+            this.lastProcessTime = now;
+            return; 
+        }
+        this.lastProcessTime = now;
+        // -----------------------------------------
+
         // Reset janela
         if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
             this.state.longBlinksCount = 0;
@@ -161,7 +178,6 @@ export class DrowsinessDetector {
             this.updateUICounters(); 
         }
 
-        // Olhos
         const isClosed = (leftEAR < cfg.EAR_THRESHOLD) && (rightEAR < cfg.EAR_THRESHOLD);
         let isEffectivelyClosed = isClosed;
 
@@ -174,7 +190,7 @@ export class DrowsinessDetector {
             this.state.recoveryFrames = 0;
         }
 
-        // Bocejo (ignora quando os olhos estão fechados)
+        // Bocejo
         if (!isEffectivelyClosed) {
             if (mar > cfg.MAR_THRESHOLD) {
                 if (this.state.mouthOpenSince === null) this.state.mouthOpenSince = now;
@@ -194,7 +210,7 @@ export class DrowsinessDetector {
             if (this.state.eyesClosedSince === null) this.state.eyesClosedSince = now;
             const timeClosed = now - this.state.eyesClosedSince;
             
-            // Nível 1: Sono Profundo (Prioridade Máxima)
+            // Nível 1: Sono Profundo
             if (timeClosed >= cfg.CRITICAL_TIME_MS) {
                 this.triggerAlarm(`PERIGO: SONO PROFUNDO (${(timeClosed/1000).toFixed(1)}s)`);
                 return;
@@ -267,6 +283,14 @@ export class DrowsinessDetector {
             this.onStatusChange({ alarm: true, text: "MICROSSONO" });
         }
 
+        // Tira a foto AGORA (no momento do flagrante)
+        // Se já tiver uma foto salva no buffer, não tira outra pra não pesar
+        if (!this.microsleepBuffer.snapshot && auth.currentUser && window.captureSnapshot) {
+            window.captureSnapshot().then(snap => {
+                this.microsleepBuffer.snapshot = snap;
+            });
+        }
+
         if (this.microsleepBuffer.timer) {
             clearTimeout(this.microsleepBuffer.timer);
         }
@@ -277,14 +301,18 @@ export class DrowsinessDetector {
             this.microsleepBuffer.accumulatedTime = duration;
         }
         
+        // Espera 5s pra ver se acumula mais tempo, depois salva
         this.microsleepBuffer.timer = setTimeout(() => {
             const totalSec = (this.microsleepBuffer.accumulatedTime / 1000).toFixed(1);
             const reason = `MICROSSONO DETECTADO (${totalSec}s)`;
 
-            this.logToFirebaseSmart(reason);
+            // Passa a foto que tiramos lá em cima
+            this.logToFirebaseSmart(reason, this.microsleepBuffer.snapshot);
             
+            // Reseta o buffer
             this.microsleepBuffer.active = false;
             this.microsleepBuffer.accumulatedTime = 0;
+            this.microsleepBuffer.snapshot = null; // Limpa foto
             this.microsleepBuffer.timer = null;
         }, 5000); 
     }
