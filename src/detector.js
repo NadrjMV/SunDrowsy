@@ -113,9 +113,12 @@ export class DrowsinessDetector {
 
         const isRatioLow = currentRatio < this.config.HEAD_RATIO_THRESHOLD;
         const isLookingUp = pitchRatio > 2.0; 
-        const isHeadDown = isRatioLow && !isLookingUp;
         
-        if (isHeadDown) {
+        // FIX: Define estado físico imediato para bloquear bocejos falsos
+        const isPhysicallyHeadDown = isRatioLow && !isLookingUp;
+        this.state.isHeadDown = isPhysicallyHeadDown;
+        
+        if (isPhysicallyHeadDown) {
             this.state.headRecoveryFrames = 0;
 
             if (this.state.headDownSince === null) {
@@ -130,7 +133,6 @@ export class DrowsinessDetector {
                 if (!this.state.hasLoggedHeadDown) {
                     this.triggerAlarm(`ATENÇÃO: CABEÇA BAIXA`);
                     this.state.hasLoggedHeadDown = true;
-                    this.state.isHeadDown = true; 
                 }
             }
             
@@ -149,7 +151,6 @@ export class DrowsinessDetector {
                 this.state.headDownSince = null;
                 this.state.hasLoggedHeadDown = false;
                 this.state.hasLoggedHeadCritical = false;
-                this.state.isHeadDown = false;
             }
         }
     }
@@ -194,7 +195,9 @@ export class DrowsinessDetector {
         }
 
         // Bocejo
-        if (!isEffectivelyClosed) {
+        // FIX: Adicionada verificação !this.state.isHeadDown
+        // Se a cabeça estiver baixa, ignora a boca pra evitar erro de perspectiva 2D
+        if (!isEffectivelyClosed && !this.state.isHeadDown) {
             if (mar > cfg.MAR_THRESHOLD) {
                 if (this.state.mouthOpenSince === null) this.state.mouthOpenSince = now;
                 if ((now - this.state.mouthOpenSince) >= cfg.YAWN_TIME_MS && !this.state.isYawning) {
