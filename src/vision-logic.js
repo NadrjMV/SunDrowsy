@@ -4,12 +4,12 @@ export const LANDMARKS = {
     RIGHT_EYE: [33, 160, 158, 133, 153, 144],
     MOUTH_INNER: [13, 14, 61, 291],
     
-    // PONTOS PARA CABEÇA ("T-Zone" Method)
+    // PONTOS PRA CABEÇA ("T-Zone" Method)
     LEFT_EYE_OUTER: 33,   
     RIGHT_EYE_OUTER: 263, 
     MOUTH_TOP: 13,
     
-    // NOVOS PONTOS PARA FILTRO DE "OLHAR PRA CIMA"
+    // PONTOS PRO FILTRO DE "OLHAR PRA CIMA"
     NOSE_TIP: 1,
     CHIN: 9,      // Ponto inferior do queixo (usando 152 as vezes oscila, 199 ou 9 sao bons)
     GLABELLA: 168, // Ponto entre os olhos (fixo)
