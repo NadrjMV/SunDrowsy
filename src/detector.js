@@ -3,10 +3,10 @@ import { db, auth } from './firebase-config.js';
 // --- CONFIGURAÇÕES PADRÃO ---
 const FACTORY_CONFIG = {
     // Tempos
-    CRITICAL_TIME_MS: 20000,        // 20s (Sono Profundo - Ajustado conforme logs)
+    CRITICAL_TIME_MS: 20000,        // 20s (Sono Profundo)
     MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
-    HEAD_DOWN_TIME_MS: 120000,       // 2min (Cabeça baixa)
-    HEAD_CRITICAL_TIME_MS: 25000,   // 20s (Crítico - Novo Requisito)
+    HEAD_DOWN_TIME_MS: 120000,      // 2min (Cabeça baixa)
+    HEAD_CRITICAL_TIME_MS: 25000,   // 20s (Crítico)
     
     LONG_BLINK_TIME_MS: 1300,
     BLINK_WINDOW_MS: 60000,
@@ -15,7 +15,7 @@ const FACTORY_CONFIG = {
     YAWN_RESET_TIME: 5000,
 
     EAR_THRESHOLD: 0.22,
-    MAR_THRESHOLD: 0.65,
+    MAR_THRESHOLD: 0.80, // Aumentado para evitar falsos positivos pré-calibração
     HEAD_RATIO_THRESHOLD: 0.85,
     
     REQUIRED_LONG_BLINKS: 5,        
@@ -81,7 +81,12 @@ export class DrowsinessDetector {
 
     setCalibration(earClosed, earOpen, marOpen, headRatioNormal) {
         const newEAR = earClosed + (earOpen - earClosed) * 0.35;
-        const newMAR = marOpen * 0.60;
+        
+        // CORREÇÃO CRÍTICA: BOCEJO
+        // 1. Usa 75% da abertura calibrada (antes era 60%, muito sensível)
+        // 2. Define 0.55 como "piso" absoluto. Abaixo disso é fala/relaxamento, não bocejo.
+        const newMAR = Math.max(marOpen * 0.75, 0.55);
+        
         const newHead = headRatioNormal * 0.88; 
 
         this.config.EAR_THRESHOLD = newEAR;
@@ -156,8 +161,6 @@ export class DrowsinessDetector {
         const cfg = this.config;
 
         // --- CORREÇÃO DE LAG (ANTI-TRAVAMENTO) ---
-        // Aumentei a tolerância para 2s. Com o Worker, isso raramente vai disparar.
-        // Se disparar, é pq o PC travou fisicamente, aí tem que resetar mesmo.
         if (now - this.lastProcessTime > 2000) {
             console.warn("⚠️ Lag extremo detectado (>2s). Resetando timers por segurança.");
             this.state.eyesClosedSince = null;
