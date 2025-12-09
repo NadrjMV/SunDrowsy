@@ -379,10 +379,16 @@ async function initSystem() {
     faceMesh.onResults(onResults);
 
     try {
-        // Reduzi para 640x480. 720p é overkill pra detecção e mata CPU sem placa de vídeo dedicada.
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" }
-        });
+            // Reduzindo a resolução para 640x360 (ainda 16:9) para aliviar a carga da GPU/WASM.
+            // O uso de 'max' é mais seguro que 'ideal' para não forçar cortes se o browser não suportar.
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { 
+                    width: { max: 1920, ideal: 1080 }, 
+                    height: { max: 1080, ideal: 720 }, 
+                    facingMode: "user" 
+                }
+            });
+            videoElement.srcObject = stream;
         videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
             // FIX: Remove display:none e usa opacity 0 para garantir que o renderizador
@@ -742,11 +748,11 @@ function startDetectionLoop() {
     if (detectionWorker) return; // Já tá rodando
 
     // Cria um script de Worker em tempo real (Blob)
-    // Esse script roda numa thread separada que o Chrome não consegue "pausar" facilmente
     const workerBlob = new Blob([`
         self.onmessage = function(e) {
             if (e.data === "start") {
                 // Roda a 20 FPS (50ms) cravado, sem choro do navegador
+                // É CRÍTICO que ele chame 'tick' mesmo em background, para forçar o faceMesh.send
                 setInterval(() => { postMessage("tick"); }, 50);
             }
         };
@@ -755,21 +761,28 @@ function startDetectionLoop() {
     detectionWorker = new Worker(URL.createObjectURL(workerBlob));
 
     detectionWorker.onmessage = function(e) {
-    if (e.data === "tick") {
-        if (!isProcessingFrame && faceMesh && videoElement && !videoElement.paused && !document.hidden) { 
-            // Adicionado: && !document.hidden
-            isProcessingFrame = true;
-            
-            // Envia pro MediaPipe
-            faceMesh.send({image: videoElement})
-                .then(() => { isProcessingFrame = false; })
-                .catch(() => { isProcessingFrame = false; });
+        if (e.data === "tick") {
+            // A detecção DEVE rodar sempre. Removemos qualquer verificação de document.hidden.
+            if (!isProcessingFrame && faceMesh && videoElement && !videoElement.paused) { 
+                isProcessingFrame = true;
+                
+                // Envia pro MediaPipe
+                faceMesh.send({image: videoElement})
+                    .then(() => { 
+                        isProcessingFrame = false; 
+                    })
+                    .catch((e) => { 
+                        // Se o MediaPipe falhar (ex: WebGL/WASM crash)
+                        console.error("ERRO CRÍTICO no MediaPipe. Tentando recuperar.", e);
+                        isProcessingFrame = false; 
+                    });
+            }
         }
-    }
-};
+    };
 
+    // Dá a partida no motor. Enviamos start APENAS uma vez.
     detectionWorker.postMessage("start");
-    console.log("🚀 Worker de Background Iniciado (Anti-Throttle Ativo)");
+    console.log("🚀 Worker de Background Iniciado (Vigilância Contínua)");
 }
 
 function handleVisibilityChange() {
@@ -777,25 +790,20 @@ function handleVisibilityChange() {
 
     if (document.hidden) {
         // A ABA SAIU DO FOCO
-        console.warn("😴 PÁGINA INATIVA: Reduzindo o impacto visual. O monitoramento CONTINUA.");
+        console.warn("😴 PÁGINA INATIVA: A detecção de frames continua. UI desativada.");
         
-        // 1. O Worker CONTINUA a mandar 'tick', mas o check !document.hidden vai bloquear o faceMesh.send
-        detector.state.monitoring = true; // Mantém ligado (para logs/eventos de alarme que já estavam ativos)
-
-        // 2. PARE o alarme imediatamente (você já faz isso, ótimo)
+        // PARE o alarme (A única exceção de segurança de UX que permitimos no background)
         detector.stopAlarm(); 
 
-        // 3. Atualiza UI/Console (apenas para debug/log)
+        detector.state.monitoring = true;
         detector.updateUI("MONITORANDO: SEGUNDO PLANO");
         
     } else {
         // A ABA VOLTOU AO FOCO
-        console.log("🚀 PÁGINA ATIVA: Retomando UI e monitoramento em foco.");
+        console.log("🚀 PÁGINA ATIVA: Retomando UI. Monitoramento FULL POWER.");
+
+        // Não fazemos nada com o Worker, pois ele roda continuamente.
         detector.state.monitoring = true;
-        
-        // Garantir que o MediaPipe RECOMECE o processamento
-        // O bloqueio do `faceMesh.send` já é suficiente. 
-        // A única coisa a fazer é garantir que a UI se atualize.
         
         // Retoma o UI (se não houver alarme ativo)
         if (!detector.state.isAlarmActive) {
