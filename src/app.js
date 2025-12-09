@@ -754,21 +754,20 @@ function startDetectionLoop() {
 
     detectionWorker = new Worker(URL.createObjectURL(workerBlob));
 
-    detectionWorker.onmessage = function(e) {
-        if (e.data === "tick") {
-            // O Worker mandou processar. O Main Thread obedece.
-            if (!isProcessingFrame && faceMesh && videoElement && !videoElement.paused) {
-                isProcessingFrame = true;
-                
-                // Envia pro MediaPipe
-                faceMesh.send({image: videoElement})
-                    .then(() => { isProcessingFrame = false; })
-                    .catch(() => { isProcessingFrame = false; });
-            }
+    ddetectionWorker.onmessage = function(e) {
+    if (e.data === "tick") {
+        if (!isProcessingFrame && faceMesh && videoElement && !videoElement.paused && !document.hidden) { 
+            // Adicionado: && !document.hidden
+            isProcessingFrame = true;
+            
+            // Envia pro MediaPipe
+            faceMesh.send({image: videoElement})
+                .then(() => { isProcessingFrame = false; })
+                .catch(() => { isProcessingFrame = false; });
         }
-    };
+    }
+};
 
-    // Dá a partida no motor
     detectionWorker.postMessage("start");
     console.log("🚀 Worker de Background Iniciado (Anti-Throttle Ativo)");
 }
@@ -780,10 +779,10 @@ function handleVisibilityChange() {
         // A ABA SAIU DO FOCO
         console.warn("😴 PÁGINA INATIVA: Reduzindo o impacto visual. O monitoramento CONTINUA.");
         
-        // 1. A detecção CONTÍNUA rodando via setInterval.
-        detector.state.monitoring = true; // Mantém ligado
+        // 1. O Worker CONTINUA a mandar 'tick', mas o check !document.hidden vai bloquear o faceMesh.send
+        detector.state.monitoring = true; // Mantém ligado (para logs/eventos de alarme que já estavam ativos)
 
-        // 2. PARE o alarme imediatamente se estiver tocando (evita som alto em background)
+        // 2. PARE o alarme imediatamente (você já faz isso, ótimo)
         detector.stopAlarm(); 
 
         // 3. Atualiza UI/Console (apenas para debug/log)
@@ -792,9 +791,11 @@ function handleVisibilityChange() {
     } else {
         // A ABA VOLTOU AO FOCO
         console.log("🚀 PÁGINA ATIVA: Retomando UI e monitoramento em foco.");
-
-        // A detecção já estava rodando via setInterval.
         detector.state.monitoring = true;
+        
+        // Garantir que o MediaPipe RECOMECE o processamento
+        // O bloqueio do `faceMesh.send` já é suficiente. 
+        // A única coisa a fazer é garantir que a UI se atualize.
         
         // Retoma o UI (se não houver alarme ativo)
         if (!detector.state.isAlarmActive) {
