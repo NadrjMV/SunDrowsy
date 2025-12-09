@@ -754,7 +754,7 @@ function startDetectionLoop() {
 
     detectionWorker = new Worker(URL.createObjectURL(workerBlob));
 
-    ddetectionWorker.onmessage = function(e) {
+    detectionWorker.onmessage = function(e) {
     if (e.data === "tick") {
         if (!isProcessingFrame && faceMesh && videoElement && !videoElement.paused && !document.hidden) { 
             // Adicionado: && !document.hidden
