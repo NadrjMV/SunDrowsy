@@ -45,6 +45,9 @@ let unsubscribeLogs = null;
 let unsubscribeTeam = null;
 let globalRawLogs = []; // Armazena todos os logs antes de filtrar
 
+// --- VARIÁVEL LOCAL DO MÓDULO EQUIPE ---
+let localUsersList = [];
+
 let tooltipEl = null;
 
 let currentUserRole = 'USER';
@@ -687,47 +690,248 @@ function mergeLunchEvents(rawLogs) {
     return combined.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 }
 
-// --- EQUIPE & POPULAÇÃO DO FILTRO ---
+export function initTeamModule() {
+    setupTeamListener();
+    setupInviteSystem();
+    setupModalsTeam();
+}
+
 function setupTeamListener() {
+    const teamGrid = document.getElementById('team-grid-container');
     if(!teamGrid) return;
     
-    unsubscribeTeam = db.collection('users').onSnapshot(snapshot => {
-        teamGrid.innerHTML = ''; 
-        
-        // Limpa o select mas mantém a opção "Todos"
-        if(userFilter) {
-            const currentSelection = userFilter.value;
-            userFilter.innerHTML = '<option value="ALL">Todos os Usuários</option>';
-            
-            // Variável auxiliar para repopular o select
-            const usersList = [];
-
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                const uid = doc.id;
-                const displayName = data.displayName || (data.email ? data.email.split('@')[0] : 'Sem Nome');
+    // 1. Injeta a Estrutura do Painel (Tech Design)
+    teamGrid.innerHTML = `
+        <div class="tech-panel">
+            <div class="tech-toolbar">
+                <div style="position: relative; flex: 1;">
+                    <span class="material-icons-round" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 18px;">search</span>
+                    <input type="text" id="team-search" class="tech-input" style="padding-left: 40px; width: 100%;" placeholder="Buscar colaborador...">
+                </div>
                 
-                usersList.push({ uid, name: displayName });
+                <select id="team-role-filter" class="tech-input" style="width: 150px; cursor: pointer;">
+                    <option value="ALL">Todos</option>
+                    <option value="GUARD">Vigias</option>
+                    <option value="ADMIN">Admins</option>
+                    <option value="OWNER">Donos</option>
+                </select>
+            </div>
 
-                // Renderiza Card na Aba Equipe
-                renderTeamCard(data, displayName);
+            <div id="tech-team-list" class="tech-list-container">
+                <div style="padding: 40px; text-align: center; color: var(--text-muted);">
+                    <span class="loader"></span> Carregando equipe...
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 2. Listeners de Filtro e Busca
+    const searchInput = document.getElementById('team-search');
+    const roleFilter = document.getElementById('team-role-filter');
+
+    const applyTeamFilters = () => {
+        const term = searchInput.value.toLowerCase();
+        const filterRole = roleFilter.value; // 'ALL', 'GUARD', 'ADMIN', 'OWNER'
+
+        const filtered = localUsersList.filter(u => {
+            // Normaliza o cargo para comparação
+            let normalizedRole = 'GUARD';
+            if (u.role === 'admin' || u.role === 'ADMIN') normalizedRole = 'ADMIN';
+            if (u.role === 'dono' || u.role === 'OWNER') normalizedRole = 'OWNER';
+            
+            // Verifica Texto (Nome ou Email)
+            const matchText = (u.displayName && u.displayName.toLowerCase().includes(term)) || 
+                              (u.email && u.email.toLowerCase().includes(term));
+            
+            // Verifica Cargo
+            const matchRole = (filterRole === 'ALL') || (normalizedRole === filterRole);
+
+            return matchText && matchRole;
+        });
+        renderTeamList(filtered);
+    };
+
+    searchInput.addEventListener('input', applyTeamFilters);
+    roleFilter.addEventListener('change', applyTeamFilters);
+
+    // 3. Conexão Realtime com Firebase
+    if(unsubscribeTeam) unsubscribeTeam(); // Evita duplicidade
+
+    unsubscribeTeam = db.collection('users').onSnapshot(snapshot => {
+        localUsersList = [];
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            localUsersList.push({ 
+                uid: doc.id, 
+                ...data,
+                displayName: data.displayName || (data.email ? data.email.split('@')[0] : 'Sem Nome')
             });
+        });
 
-            // Popula o Select
-            usersList.forEach(u => {
-                const option = document.createElement('option');
-                option.value = u.uid;
-                option.innerText = u.name;
-                userFilter.appendChild(option);
-            });
+        // Ordenação: Vigia -> Admin -> Dono
+        const roleWeight = {
+            'guard': 1, 'VIGIA': 1, 'vigia': 1,
+            'admin': 2, 'ADMIN': 2,
+            'dono': 3, 'OWNER': 3
+        };
 
-            // Tenta restaurar a seleção anterior se ainda existir
-            userFilter.value = currentSelection;
-        }
+        localUsersList.sort((a, b) => {
+            const weightA = roleWeight[a.role] || 1;
+            const weightB = roleWeight[b.role] || 1;
+            
+            if (weightA !== weightB) return weightA - weightB; 
+            return a.displayName.localeCompare(b.displayName);
+        });
+
+        applyTeamFilters(); // Renderiza a lista inicial
 
     }, error => {
         console.error("Erro ao carregar equipe:", error);
-        teamGrid.innerHTML = '<div style="color: var(--danger);">Erro ao carregar dados.</div>';
+        document.getElementById('tech-team-list').innerHTML = `<p style="text-align:center; color: var(--danger);">Erro ao carregar dados.</p>`;
+    });
+}
+
+function renderTeamList(users) {
+    const container = document.getElementById('tech-team-list');
+    if(!container) return;
+    
+    container.innerHTML = '';
+
+    if (users.length === 0) {
+        container.innerHTML = `
+            <div style="text-align:center; padding: 60px 20px; color: var(--text-muted);">
+                <span class="material-icons-round" style="font-size: 48px; opacity:0.3; margin-bottom: 10px;">person_off</span>
+                <p>Nenhum colaborador encontrado.</p>
+            </div>`;
+        return;
+    }
+
+    users.forEach(user => {
+        const photo = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=333&color=fff`;
+        
+        // Define o Badge Neon conforme o cargo
+        let roleBadge = `<span class="badge-neon badge-user">VIGIA</span>`; // Default
+        if(user.role === 'OWNER' || user.role === 'dono') roleBadge = `<span class="badge-neon badge-owner">DONO</span>`;
+        else if(user.role === 'ADMIN' || user.role === 'admin') roleBadge = `<span class="badge-neon badge-admin">ADMIN</span>`;
+        else if(user.role === 'VIGIA' || user.role === 'GUARD') roleBadge = `<span class="badge-neon badge-guard">VIGIA</span>`;
+
+        const itemHtml = `
+        <div class="tech-list-item">
+            <div style="display: flex; align-items: center; gap: 16px; flex: 1;">
+                <img src="${photo}" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,0.1);">
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-weight: 600; font-size: 0.95rem; color: #fff;">${user.displayName}</span>
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">${user.email || '---'}</span>
+                </div>
+            </div>
+
+            <div style="flex: 0 0 100px; text-align: center;">
+                ${roleBadge}
+            </div>
+            
+            <div style="display: flex; gap: 8px; margin-left: 15px;">
+                 <button class="btn-icon-secondary" style="width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Ver Perfil">
+                    <span class="material-icons-round" style="font-size: 20px;">more_horiz</span>
+                </button>
+            </div>
+        </div>
+        `;
+        container.innerHTML += itemHtml;
+    });
+}
+
+function setupInviteSystem() {
+    const formCreateInvite = document.getElementById('form-create-invite');
+    const addMemberModal = document.getElementById('add-member-modal');
+    const inviteResultModal = document.getElementById('invite-result-modal');
+    
+    // Inputs Resultado
+    const resultLinkInput = document.getElementById('result-link');
+    const resultMsgDiv = document.getElementById('result-message');
+    const btnCopyLink = document.getElementById('btn-copy-link');
+    const btnCopyMsg = document.getElementById('btn-copy-msg');
+    const btnShareWpp = document.getElementById('btn-share-wpp');
+
+    if(formCreateInvite) {
+        formCreateInvite.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const role = document.getElementById('invite-role').value;
+            const uses = parseInt(document.getElementById('invite-uses').value);
+            const days = parseInt(document.getElementById('invite-days').value);
+            const submitBtn = formCreateInvite.querySelector('button[type="submit"]');
+
+            try {
+                submitBtn.disabled = true;
+                submitBtn.innerText = "Gerando...";
+                
+                // Gera token único
+                const token = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+                const expiresAt = new Date();
+                expiresAt.setDate(expiresAt.getDate() + days);
+
+                // Salva no Firestore
+                await db.collection('invites').doc(token).set({
+                    token: token,
+                    role: role,
+                    maxUses: uses,
+                    usesLeft: uses,
+                    expiresAt: expiresAt,
+                    createdBy: auth.currentUser.uid,
+                    createdAt: new Date(),
+                    active: true
+                });
+
+                // Gera Link
+                const baseUrl = window.location.origin + window.location.pathname.replace('admin.html', 'index.html');
+                const finalLink = `${baseUrl.split('?')[0]}?convite=${token}`;
+                
+                const msgTemplate = `💼 *Convite Oficial - SunDrowsy*\n\nVocê foi convidado a integrar a plataforma como *${role}*.\n\n📅 Expira em *${days} dia(s)*\n🔢 Válido para *${uses} uso(s)*\n\n*Clique no link abaixo para criar sua conta:*\n${finalLink}`;
+
+                // Popula Modal de Resultado
+                resultLinkInput.value = finalLink;
+                resultMsgDiv.innerText = msgTemplate;
+
+                // Troca os Modais
+                addMemberModal.classList.add('hidden');
+                inviteResultModal.classList.remove('hidden');
+                setTimeout(() => inviteResultModal.style.opacity = '1', 10);
+
+                // Ações de Cópia
+                btnCopyLink.onclick = () => { navigator.clipboard.writeText(finalLink); alert('Link copiado!'); };
+                btnCopyMsg.onclick = () => { navigator.clipboard.writeText(msgTemplate); alert('Mensagem copiada!'); };
+                btnShareWpp.onclick = () => { window.open(`https://wa.me/?text=${encodeURIComponent(msgTemplate)}`, '_blank'); };
+
+                formCreateInvite.reset();
+            } catch (error) {
+                console.error("Erro ao gerar convite:", error);
+                alert("Erro: " + error.message);
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = "Gerar Link de Convite";
+            }
+        });
+    }
+}
+
+function setupModalsTeam() {
+    const btnAddMember = document.getElementById('btn-add-member');
+    const addMemberModal = document.getElementById('add-member-modal');
+    const inviteResultModal = document.getElementById('invite-result-modal');
+    const closeBtns = [document.getElementById('close-add-member'), document.getElementById('close-invite-result')];
+
+    if(btnAddMember) {
+        btnAddMember.addEventListener('click', () => {
+            addMemberModal.classList.remove('hidden');
+            setTimeout(() => addMemberModal.style.opacity = '1', 10);
+        });
+    }
+
+    closeBtns.forEach(btn => {
+        if(btn) btn.addEventListener('click', () => {
+            if(addMemberModal) { addMemberModal.style.opacity = '0'; setTimeout(() => addMemberModal.classList.add('hidden'), 300); }
+            if(inviteResultModal) { inviteResultModal.style.opacity = '0'; setTimeout(() => inviteResultModal.classList.add('hidden'), 300); }
+        });
     });
 }
 
