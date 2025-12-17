@@ -1,4 +1,4 @@
-# SunDrowsy | Tactical Safety System
+# SunDrowsy | Sistema de Segurança Tática
 
 **Sistema Neural de Prevenção à Fadiga e Monitoramento de Vigilância**  
 **Edge-Powered Computer Vision para Operações Críticas.**
