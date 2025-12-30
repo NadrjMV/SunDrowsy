@@ -149,12 +149,10 @@ auth.onAuthStateChanged(async (user) => {
             if (doc.exists) {
                 userData = { ...userData, ...doc.data() };
                 
-                // 1. Verifica se a conta está ativa
                 if (userData.active === false) {
                     throw new Error("⛔ CONTA DESATIVADA: Contacte o administrador.");
                 }
 
-                // 2. Atualiza dados básicos (mantendo compatibilidade com login Google/E-mail)
                 await userRef.set({
                     displayName: user.displayName || userData.displayName || 'Usuário',
                     email: user.email,
@@ -192,7 +190,6 @@ auth.onAuthStateChanged(async (user) => {
 
                 console.log(`🎉 Convite aceito! Criando conta de ${inviteData.role}...`);
                 
-                // Monta o novo perfil
                 userData = {
                     displayName: user.displayName || user.email.split('@')[0],
                     email: user.email,
@@ -208,7 +205,6 @@ auth.onAuthStateChanged(async (user) => {
                 
                 await userRef.set(userData);
 
-                // Consome o uso do convite
                 await inviteRef.update({
                     usesLeft: firebase.firestore.FieldValue.increment(-1)
                 });
@@ -219,15 +215,15 @@ auth.onAuthStateChanged(async (user) => {
             // === LÓGICA LGPD ===
             if (!userData.lgpdAccepted) {
                 console.log("🔒 LGPD: Consentimento pendente.");
+                loginView.classList.add('hidden'); // Esconde login
+                appView.classList.add('hidden');   // Esconde app
                 lgpdModal.classList.remove('hidden');
                 setTimeout(() => lgpdModal.style.opacity = '1', 10);
-                loginView.classList.add('hidden');
                 setupLgpdEvents(user.uid);
                 return;
             }
 
             // --- CARREGAMENTO DA CALIBRAÇÃO INDIVIDUAL ---
-            // Aplicamos os limites salvos no banco direto no detector antes de iniciar o app
             if (userData.calibration && detector) {
                 console.log(`🎯 Calibração carregada para: ${user.email}`);
                 const c = userData.calibration;
@@ -235,44 +231,39 @@ auth.onAuthStateChanged(async (user) => {
                 detector.config.MAR_THRESHOLD = c.MAR_THRESHOLD;
                 detector.config.HEAD_RATIO_THRESHOLD = c.HEAD_RATIO_THRESHOLD;
                 detector.state.isCalibrated = true;
-            } else {
-                console.warn("⚠️ Nenhuma calibração anterior. O usuário precisará calibrar.");
-                // Opcional: abrir modal de calibração automaticamente
-                // toggleModal(calibModal, true);
             }
 
-            // Inicia o fluxo normal do App
             startAppFlow(user, userData.role, userData);
 
         } catch (error) {
             console.error("❌ ACESSO NEGADO:", error.message);
             alert(error.message);
             auth.signOut();
-            
-            // Reset de UI para tela de login
-            appView.classList.remove('active');
-            appView.classList.add('hidden');
-            loginView.classList.remove('hidden');
-            setTimeout(() => loginView.classList.add('active'), 100);
-            stopSystem();
-            
-            lgpdModal.style.opacity = '0';
-            setTimeout(() => lgpdModal.classList.add('hidden'), 300);
+            showLoginView();
         }
         
     } else {
-        // Estado deslogado: garante que tudo esteja limpo
-        appView.classList.remove('active');
-        appView.classList.add('hidden');
-        loginView.classList.remove('hidden');
-        setTimeout(() => loginView.classList.add('active'), 100);
-        
-        lgpdModal.style.opacity = '0';
-        setTimeout(() => lgpdModal.classList.add('hidden'), 300);
-        
-        stopSystem();
+        // Se não está logado, verificamos se há um convite na URL
+        const tokenInUrl = new URLSearchParams(window.location.search).get('convite');
+        if (tokenInUrl) {
+            console.log("🎟️ Aguardando autenticação para processar convite...");
+            // Mantemos a tela de login visível para ele entrar/cadastrar
+            showLoginView();
+        } else {
+            showLoginView();
+            stopSystem();
+        }
     }
 });
+
+// Função auxiliar para resetar a UI para o Login
+function showLoginView() {
+    appView.classList.remove('active');
+    appView.classList.add('hidden');
+    lgpdModal.classList.add('hidden');
+    loginView.classList.remove('hidden');
+    setTimeout(() => loginView.classList.add('active'), 100);
+}
 
 // --- FUNÇÕES AUXILIARES LGPD ---
 
