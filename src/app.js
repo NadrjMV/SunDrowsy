@@ -90,46 +90,41 @@ let earHistory = new Array(50).fill(0.3);
 const formEmailLogin = document.getElementById('form-email-login');
 if (formEmailLogin) {
     formEmailLogin.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const email = document.getElementById('login-email').value;
-        const password = document.getElementById('login-password').value;
-        const btn = document.getElementById('btn-email-login');
-        
-        // Verifica se é um novo cadastro (tem convite salvo)
-        const hasInvite = sessionStorage.getItem('sd_invite_token');
+    e.preventDefault();
+    const email = document.getElementById('login-email').value;
+    const password = document.getElementById('login-password').value;
+    const btn = document.getElementById('btn-email-login');
+    
+    // A fonte da verdade agora é o sessionStorage, validado pelo checkAccess()
+    const tokenValido = sessionStorage.getItem('sd_invite_token');
 
-        btn.disabled = true;
-        btn.innerText = hasInvite ? "Criando Conta..." : "Autenticando...";
+    btn.disabled = true;
+    const originalText = btn.innerHTML;
+    btn.innerText = tokenValido ? "Criando Perfil..." : "Autenticando...";
 
-        try {
-            if (hasInvite) {
-                // Tenta CRIAR a conta primeiro
-                await auth.createUserWithEmailAndPassword(email, password);
-                console.log("🆕 Conta criada com sucesso via convite.");
-            } else {
-                // Fluxo normal de quem já é usuário
-                await auth.signInWithEmailAndPassword(email, password);
-            }
-        } catch (error) {
-            console.error("Erro Auth:", error);
-            
-            // Tratamento amigável: se ele tentar cadastrar algo que já existe, avisa
-            if (error.code === 'auth/email-already-in-use') {
-                alert("Este e-mail já possui cadastro. Tente fazer login normal.");
-            } else {
-                alert("Falha: " + error.message);
-            }
-            
-            btn.disabled = false;
-            btn.innerText = hasInvite ? "Criar Conta" : "Entrar";
+    try {
+        if (tokenValido) {
+            // Tenta criar conta nova
+            await auth.createUserWithEmailAndPassword(email, password);
+        } else {
+            // Tenta login normal
+            await auth.signInWithEmailAndPassword(email, password);
         }
-    });
+    } catch (error) {
+        console.error("Erro Auth:", error);
+        alert("Erro: " + error.message);
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+});
 }
 
 if (sessionStorage.getItem('sd_invite_token')) {
     const loginBtn = document.getElementById('btn-email-login');
+
+    // Forçamos o estado inicial para LOGIN puro. Nada de cadastro por enquanto.
     if (loginBtn) {
-        loginBtn.innerHTML = '<span class="material-icons-round">person_add</span> Finalizar Cadastro';
+        loginBtn.innerHTML = '<span class="material-icons-round">login</span> Entrar';
     }
 }
 
@@ -139,39 +134,46 @@ const inviteToken = urlParams.get('convite');
 
 loginView.classList.add('hidden');
 
+const emailBtn = document.getElementById('btn-email-login');
+
 async function checkAccess() {
-    // Se não tem token na URL nem no Storage, é acesso comum
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteToken = urlParams.get('convite');
     const storedToken = sessionStorage.getItem('sd_invite_token');
     const tokenToVerify = inviteToken || storedToken;
 
-    if (tokenToVerify) {
-        try {
-            const inviteDoc = await db.collection('invites').doc(tokenToVerify).get();
-            
-            if (inviteDoc.exists && inviteDoc.data().active && inviteDoc.data().usesLeft > 0) {
-                console.log("🎟️ Convite Válido. Liberando tela de cadastro.");
-                if (inviteToken) sessionStorage.setItem('sd_invite_token', inviteToken);
-                
-                // Limpa a URL para estética e segurança
-                window.history.replaceState({}, document.title, window.location.pathname);
-                
-                loginView.classList.remove('hidden');
-                return; // Para aqui, o convite é válido
-            }
-        } catch (e) {
-            console.error("Erro ao validar convite:", e);
-        }
-    }
+    // Se não tem token nenhum, não faz nada. O botão continua como "Entrar".
+    if (!tokenToVerify) return;
 
-    // 2. Se chegou aqui, o convite é inválido ou não existe.
-    // Redirecionamos para onde você quiser (ex: uma landing page ou erro)
-    // Se quiser que ele vá para o login comum, mude o texto do botão via JS aqui:
-    console.log("🚫 Sem convite válido. Mudando para Login Comum.");
-    const btn = document.getElementById('btn-email-login');
-    if (btn) btn.innerText = "Entrar no Sistema"; 
-    loginView.classList.remove('hidden');
+    try {
+        // IMPORTANTE: No Console do Firebase, a regra de 'invites' deve ser 'allow get: if true'
+        const inviteDoc = await db.collection('invites').doc(tokenToVerify).get();
+        
+        if (inviteDoc.exists && inviteDoc.data().active && inviteDoc.data().usesLeft > 0) {
+            console.log("🎟️ Convite VÁLIDO detectado. Ativando modo de cadastro.");
+            
+            // Só salvamos e mudamos a UI se o convite for REALMENTE válido no banco
+            sessionStorage.setItem('sd_invite_token', tokenToVerify);
+            
+            if (loginBtn) {
+                loginBtn.innerHTML = '<span class="material-icons-round">person_add</span> Finalizar Cadastro';
+            }
+
+            // Limpa a URL para ficar bonito
+            if (inviteToken) window.history.replaceState({}, document.title, window.location.pathname);
+        } else {
+            // Se o token existe mas é inválido (vencido/sem uso), limpamos tudo
+            console.warn("⚠️ Convite inválido ou expirado.");
+            sessionStorage.removeItem('sd_invite_token');
+        }
+    } catch (e) {
+        // Erro de permissão ou rede: mantém o modo LOGIN (mais seguro)
+        console.error("Erro ao validar acesso:", e);
+        sessionStorage.removeItem('sd_invite_token');
+    }
 }
 
+// Executa a validação
 checkAccess();
 
 if (inviteToken) {
