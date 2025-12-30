@@ -111,10 +111,8 @@ if (formEmailLogin) {
 // Verifica se existe token na URL ao carregar
 const urlParams = new URLSearchParams(window.location.search);
 const inviteToken = urlParams.get('convite');
-
 if (inviteToken) {
-    console.log("🎟️ Token de convite detectado:", inviteToken);
-    // Opcional: Salvar em sessionStorage caso o login do Google limpe a URL
+    console.log("🎟️ Token sequestrado da URL:", inviteToken);
     sessionStorage.setItem('sd_invite_token', inviteToken);
 }
 
@@ -138,14 +136,14 @@ auth.onAuthStateChanged(async (user) => {
             const userRef = db.collection('users').doc(user.uid);
             const doc = await userRef.get();
             
-            // Inicializa com valores padrão para evitar erros de "undefined"
+            // Inicializa com valores padrão para evitar "userRole is not defined"
             let userData = { 
                 role: 'VIGIA', 
                 active: true, 
                 lgpdAccepted: false 
             };
 
-            // --- CENÁRIO 1: USUÁRIO JÁ EXISTE NO BANCO ---
+            // --- CENÁRIO 1: USUÁRIO JÁ CADASTRADO ---
             if (doc.exists) {
                 userData = { ...userData, ...doc.data() };
                 
@@ -153,6 +151,7 @@ auth.onAuthStateChanged(async (user) => {
                     throw new Error("⛔ CONTA DESATIVADA: Contacte o administrador.");
                 }
 
+                // Atualiza rastro de login
                 await userRef.set({
                     displayName: user.displayName || userData.displayName || 'Usuário',
                     email: user.email,
@@ -163,33 +162,37 @@ auth.onAuthStateChanged(async (user) => {
                 console.log(`✅ Acesso Permitido: ${userData.role}`);
             } 
             
-            // --- CENÁRIO 2: NOVO USUÁRIO (PRIMEIRO ACESSO VIA CONVITE) ---
+            // --- CENÁRIO 2: NOVO USUÁRIO (VIA CONVITE) ---
             else {
-                console.log("👤 Novo visitante. Verificando convite...");
+                console.log("👤 Novo visitante detectado. Validando credenciais de convite...");
                 
-                const tokenToUse = inviteToken || sessionStorage.getItem('sd_invite_token');
+                // Recupera o token que salvamos no sessionStorage lá no topo do script
+                const tokenToUse = sessionStorage.getItem('sd_invite_token');
 
                 if (!tokenToUse) {
-                    throw new Error("⛔ CADASTRO BLOQUEADO: Você precisa de um Link de Convite oficial para entrar.");
+                    // Se não tem token, desloga e barra
+                    throw new Error("⛔ ACESSO NEGADO: Este sistema é restrito. Você precisa de um Link de Convite oficial.");
                 }
 
                 const inviteRef = db.collection('invites').doc(tokenToUse);
                 const inviteDoc = await inviteRef.get();
 
                 if (!inviteDoc.exists) {
-                    throw new Error("⛔ Convite inválido ou inexistente.");
+                    throw new Error("⛔ Convite inválido ou já expirado.");
                 }
 
                 const inviteData = inviteDoc.data();
                 const now = new Date();
                 const expiresAt = inviteData.expiresAt.toDate();
 
-                if (!inviteData.active) throw new Error("⛔ Este convite foi cancelado.");
-                if (inviteData.usesLeft <= 0) throw new Error("⛔ Este convite já atingiu o limite de usos.");
-                if (expiresAt < now) throw new Error("⛔ Este convite expirou.");
+                // Validações de segurança do convite
+                if (!inviteData.active) throw new Error("⛔ Este link de convite foi desativado.");
+                if (inviteData.usesLeft <= 0) throw new Error("⛔ Este convite atingiu o limite máximo de usos.");
+                if (expiresAt < now) throw new Error("⛔ Este link de convite expirou.");
 
-                console.log(`🎉 Convite aceito! Criando conta de ${inviteData.role}...`);
+                console.log(`🎉 Convite válido! Vinculando como ${inviteData.role}...`);
                 
+                // Monta o perfil do novo colaborador
                 userData = {
                     displayName: user.displayName || user.email.split('@')[0],
                     email: user.email,
@@ -203,29 +206,32 @@ auth.onAuthStateChanged(async (user) => {
                     lgpdAccepted: false
                 };
                 
+                // Salva o novo usuário no Firestore
                 await userRef.set(userData);
 
+                // Consome um uso do convite no banco
                 await inviteRef.update({
                     usesLeft: firebase.firestore.FieldValue.increment(-1)
                 });
                 
+                // Limpa o token para evitar loop de cadastro
                 sessionStorage.removeItem('sd_invite_token');
             }
 
-            // === LÓGICA LGPD ===
+            // === LÓGICA DE TRANSIÇÃO DE TELAS (LGPD -> APP) ===
             if (!userData.lgpdAccepted) {
-                console.log("🔒 LGPD: Consentimento pendente.");
-                loginView.classList.add('hidden'); // Esconde login
-                appView.classList.add('hidden');   // Esconde app
+                console.log("🔒 LGPD: Aguardando aceite dos termos.");
+                loginView.classList.add('hidden');
+                appView.classList.add('hidden');
                 lgpdModal.classList.remove('hidden');
                 setTimeout(() => lgpdModal.style.opacity = '1', 10);
                 setupLgpdEvents(user.uid);
                 return;
             }
 
-            // --- CARREGAMENTO DA CALIBRAÇÃO INDIVIDUAL ---
+            // --- INJEÇÃO DE CALIBRAÇÃO SALVA ---
             if (userData.calibration && detector) {
-                console.log(`🎯 Calibração carregada para: ${user.email}`);
+                console.log(`🎯 Calibração Individual aplicada para: ${user.email}`);
                 const c = userData.calibration;
                 detector.config.EAR_THRESHOLD = c.EAR_THRESHOLD;
                 detector.config.MAR_THRESHOLD = c.MAR_THRESHOLD;
@@ -233,26 +239,20 @@ auth.onAuthStateChanged(async (user) => {
                 detector.state.isCalibrated = true;
             }
 
+            // Inicia o App se tudo estiver OK
             startAppFlow(user, userData.role, userData);
 
         } catch (error) {
-            console.error("❌ ACESSO NEGADO:", error.message);
+            console.error("❌ Erro no fluxo de Auth:", error.message);
             alert(error.message);
             auth.signOut();
             showLoginView();
         }
         
     } else {
-        // Se não está logado, verificamos se há um convite na URL
-        const tokenInUrl = new URLSearchParams(window.location.search).get('convite');
-        if (tokenInUrl) {
-            console.log("🎟️ Aguardando autenticação para processar convite...");
-            // Mantemos a tela de login visível para ele entrar/cadastrar
-            showLoginView();
-        } else {
-            showLoginView();
-            stopSystem();
-        }
+        // Usuário deslogado: mostra login e garante limpeza de processos
+        showLoginView();
+        stopSystem();
     }
 });
 
