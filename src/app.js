@@ -137,6 +137,43 @@ if (sessionStorage.getItem('sd_invite_token')) {
 const urlParams = new URLSearchParams(window.location.search);
 const inviteToken = urlParams.get('convite');
 
+loginView.classList.add('hidden');
+
+async function checkAccess() {
+    // Se não tem token na URL nem no Storage, é acesso comum
+    const storedToken = sessionStorage.getItem('sd_invite_token');
+    const tokenToVerify = inviteToken || storedToken;
+
+    if (tokenToVerify) {
+        try {
+            const inviteDoc = await db.collection('invites').doc(tokenToVerify).get();
+            
+            if (inviteDoc.exists && inviteDoc.data().active && inviteDoc.data().usesLeft > 0) {
+                console.log("🎟️ Convite Válido. Liberando tela de cadastro.");
+                if (inviteToken) sessionStorage.setItem('sd_invite_token', inviteToken);
+                
+                // Limpa a URL para estética e segurança
+                window.history.replaceState({}, document.title, window.location.pathname);
+                
+                loginView.classList.remove('hidden');
+                return; // Para aqui, o convite é válido
+            }
+        } catch (e) {
+            console.error("Erro ao validar convite:", e);
+        }
+    }
+
+    // 2. Se chegou aqui, o convite é inválido ou não existe.
+    // Redirecionamos para onde você quiser (ex: uma landing page ou erro)
+    // Se quiser que ele vá para o login comum, mude o texto do botão via JS aqui:
+    console.log("🚫 Sem convite válido. Mudando para Login Comum.");
+    const btn = document.getElementById('btn-email-login');
+    if (btn) btn.innerText = "Entrar no Sistema"; 
+    loginView.classList.remove('hidden');
+}
+
+checkAccess();
+
 if (inviteToken) {
     console.log("🎟️ Token sequestrado da URL:", inviteToken);
     sessionStorage.setItem('sd_invite_token', inviteToken);
