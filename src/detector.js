@@ -80,32 +80,31 @@ export class DrowsinessDetector {
     }
 
     setCalibration(earClosed, earOpen, marOpen, headRatioNormal) {
-        const newEAR = earClosed + (earOpen - earClosed) * 0.35;
-        
-        // CORREÇÃO CRÍTICA: BOCEJO
-        // 1. Usa 75% da abertura calibrada (antes era 60%, muito sensível)
-        // 2. Define 0.55 como "piso" absoluto. Abaixo disso é fala/relaxamento, não bocejo.
-        const newMAR = Math.max(marOpen * 0.75, 0.55);
-        
-        const newHead = headRatioNormal * 0.88; 
+    const newEAR = earClosed + (earOpen - earClosed) * 0.35;
+    const newMAR = Math.max(marOpen * 0.75, 0.55);
+    const newHead = headRatioNormal * 0.88; 
 
-        this.config.EAR_THRESHOLD = newEAR;
-        this.config.MAR_THRESHOLD = newMAR;
-        this.config.HEAD_RATIO_THRESHOLD = newHead;
-        
-        this.state.isCalibrated = true;
-        this.updateUI("SISTEMA CALIBRADO");
+    this.config.EAR_THRESHOLD = newEAR;
+    this.config.MAR_THRESHOLD = newMAR;
+    this.config.HEAD_RATIO_THRESHOLD = newHead;
+    
+    this.state.isCalibrated = true;
+    this.updateUI("SISTEMA CALIBRADO");
 
-        if(auth.currentUser) {
-            db.collection('users').doc(auth.currentUser.uid).set({
-                calibration: { 
-                    EAR_THRESHOLD: newEAR, 
-                    MAR_THRESHOLD: newMAR,
-                    HEAD_RATIO_THRESHOLD: newHead
-                }
-            }, { merge: true }).catch(e => console.error("Erro ao salvar calibração:", e));
-        }
+    // Persistência imediata no perfil do usuário logado
+    if (auth.currentUser) {
+        db.collection('users').doc(auth.currentUser.uid).set({
+            calibration: { 
+                EAR_THRESHOLD: newEAR, 
+                MAR_THRESHOLD: newMAR,
+                HEAD_RATIO_THRESHOLD: newHead,
+                updatedAt: new Date()
+            }
+        }, { merge: true })
+        .then(() => console.log("✅ Calibração salva no Firestore para:", auth.currentUser.uid))
+        .catch(e => console.error("❌ Erro ao salvar calibração:", e));
     }
+}
 
     // --- LÓGICA DE CABEÇA ---
     processHeadTilt(currentRatio, pitchRatio) {

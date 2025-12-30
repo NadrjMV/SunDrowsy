@@ -26,9 +26,30 @@
         <div class="login-card">
             <h1 class="brand-title">Sun<span>Drowsy</span></h1>
             <p class="login-desc">Sistema Neural de Prevenção à Fadiga</p>
-            <button id="btn-google-login" class="btn-primary">
-                <span class="material-icons-round">login</span> Entrar com Google
+            
+            <form id="form-email-login" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
+                <div class="form-group">
+                    <input type="email" id="login-email" class="glass-input" placeholder="E-mail" style="width: 100%;" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="login-password" class="glass-input" placeholder="Senha" style="width: 100%;" required>
+                </div>
+                <button type="submit" id="btn-email-login" class="btn-primary" style="width: 100%; justify-content: center;">
+                    <span class="material-icons-round">login</span> Entrar
+                </button>
+            </form>
+
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px; opacity: 0.5;">
+                <hr style="flex: 1;"> <small>OU</small> <hr style="flex: 1;">
+            </div>
+
+            <button id="btn-google-login" class="btn-secondary" style="width: 100%; justify-content: center; gap: 10px; border-radius: 12px;">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="18"> Entrar com Google
             </button>
+            
+            <p style="margin-top: 20px; font-size: 0.85rem; color: var(--text-muted);">
+                Novo por aqui? O acesso é via link de convite oficial.
+            </p>
         </div>
     </section>
 

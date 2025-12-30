@@ -86,6 +86,28 @@ let earHistory = new Array(50).fill(0.3);
     console.log(`🚀 ${APP_CONFIG.NAME} carregado - Versão: ${APP_CONFIG.VERSION}`);
 })();
 
+// --- LOGIN POR E-MAIL E SENHA ---
+const formEmailLogin = document.getElementById('form-email-login');
+if (formEmailLogin) {
+    formEmailLogin.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        const btn = document.getElementById('btn-email-login');
+
+        btn.disabled = true;
+        btn.innerText = "Autenticando...";
+
+        auth.signInWithEmailAndPassword(email, password)
+            .catch(error => {
+                console.error("Erro Login E-mail:", error);
+                alert("Falha no login: " + error.message);
+                btn.disabled = false;
+                btn.innerText = "Entrar";
+            });
+    });
+}
+
 // Verifica se existe token na URL ao carregar
 const urlParams = new URLSearchParams(window.location.search);
 const inviteToken = urlParams.get('convite');
@@ -109,52 +131,50 @@ document.getElementById('btn-logout').addEventListener('click', () => {
     auth.signOut();
 });
 
-// --- FLUXO DE AUTENTICAÇÃO  ---
+// --- FLUXO DE AUTENTICAÇÃO ATUALIZADO (E-mail/Senha + Google + Calibração Individual) ---
 auth.onAuthStateChanged(async (user) => {
     if (user) {
-        // Usuário logou no Google. Agora o sistema valida a entrada.
-        
         try {
             const userRef = db.collection('users').doc(user.uid);
             const doc = await userRef.get();
             
-            let userRole = 'VIGIA'; 
-            let userData = null;
+            // Inicializa com valores padrão para evitar erros de "undefined"
+            let userData = { 
+                role: 'VIGIA', 
+                active: true, 
+                lgpdAccepted: false 
+            };
 
-            // --- CENÁRIO 1: USUÁRIO JÁ TEM CONTA ---
+            // --- CENÁRIO 1: USUÁRIO JÁ EXISTE NO BANCO ---
             if (doc.exists) {
-                userData = doc.data();
+                userData = { ...userData, ...doc.data() };
                 
-                // 1. Verifica se foi banido/desativado
+                // 1. Verifica se a conta está ativa
                 if (userData.active === false) {
                     throw new Error("⛔ CONTA DESATIVADA: Contacte o administrador.");
                 }
 
-                // 2. CORREÇÃO DE NOMES
-                // Atualiza o perfil no banco com os dados mais recentes do Google
+                // 2. Atualiza dados básicos (mantendo compatibilidade com login Google/E-mail)
                 await userRef.set({
-                    displayName: user.displayName,
+                    displayName: user.displayName || userData.displayName || 'Usuário',
                     email: user.email,
-                    photoURL: user.photoURL,
+                    photoURL: user.photoURL || userData.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff',
                     lastLogin: new Date()
-                }, { merge: true }); // 'merge: true' mantem a calibração salva
+                }, { merge: true });
 
-                userRole = userData.role;
-                console.log(`✅ Acesso Permitido: ${userRole}`);
+                console.log(`✅ Acesso Permitido: ${userData.role}`);
             } 
             
-            // --- CENÁRIO 2: NOVO USUÁRIO ---
+            // --- CENÁRIO 2: NOVO USUÁRIO (PRIMEIRO ACESSO VIA CONVITE) ---
             else {
                 console.log("👤 Novo visitante. Verificando convite...");
                 
-                // Busca token na URL ou na Memória
                 const tokenToUse = inviteToken || sessionStorage.getItem('sd_invite_token');
 
                 if (!tokenToUse) {
                     throw new Error("⛔ CADASTRO BLOQUEADO: Você precisa de um Link de Convite oficial para entrar.");
                 }
 
-                // Valida se o convite existe no banco
                 const inviteRef = db.collection('invites').doc(tokenToUse);
                 const inviteDoc = await inviteRef.get();
 
@@ -166,85 +186,87 @@ auth.onAuthStateChanged(async (user) => {
                 const now = new Date();
                 const expiresAt = inviteData.expiresAt.toDate();
 
-                // Valida as regras do convite
                 if (!inviteData.active) throw new Error("⛔ Este convite foi cancelado.");
                 if (inviteData.usesLeft <= 0) throw new Error("⛔ Este convite já atingiu o limite de usos.");
                 if (expiresAt < now) throw new Error("⛔ Este convite expirou.");
 
-                // --- TUDO CERTO: CRIA A CONTA ---
                 console.log(`🎉 Convite aceito! Criando conta de ${inviteData.role}...`);
-                userRole = inviteData.role;
-
-                // Salva o novo usuário
-                const newUserPayload = {
-                    displayName: user.displayName,
+                
+                // Monta o novo perfil
+                userData = {
+                    displayName: user.displayName || user.email.split('@')[0],
                     email: user.email,
-                    photoURL: user.photoURL,
-                    role: userRole,
+                    photoURL: user.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff',
+                    role: inviteData.role,
                     createdAt: now,
                     active: true,
                     invitedBy: inviteData.createdBy,
                     inviteUsed: tokenToUse,
                     lastLogin: now,
-                    lgpdAccepted: false // Novo usuário ainda não aceitou
+                    lgpdAccepted: false
                 };
                 
-                await userRef.set(newUserPayload);
-                userData = newUserPayload;
+                await userRef.set(userData);
 
-                // Queima um uso do convite
+                // Consome o uso do convite
                 await inviteRef.update({
                     usesLeft: firebase.firestore.FieldValue.increment(-1)
                 });
                 
-                sessionStorage.removeItem('sd_invite_token'); // Limpa para não reusar
+                sessionStorage.removeItem('sd_invite_token');
             }
 
             // === LÓGICA LGPD ===
-            // Verifica se o usuário já aceitou os termos
             if (!userData.lgpdAccepted) {
                 console.log("🔒 LGPD: Consentimento pendente.");
-                
-                // 1. Mostra o Modal LGPD
                 lgpdModal.classList.remove('hidden');
                 setTimeout(() => lgpdModal.style.opacity = '1', 10);
-                
-                // 2. Esconde o login mas NÃO mostra o App ainda
                 loginView.classList.add('hidden');
-                
-                // 3. Configura os botões do modal para destravar o fluxo
                 setupLgpdEvents(user.uid);
-                
                 return;
             }
 
-            // Se chegou aqui, já tem aceite LGPD. Inicia o App normalmente.
-            startAppFlow(user, userRole, userData);
+            // --- CARREGAMENTO DA CALIBRAÇÃO INDIVIDUAL ---
+            // Aplicamos os limites salvos no banco direto no detector antes de iniciar o app
+            if (userData.calibration && detector) {
+                console.log(`🎯 Calibração carregada para: ${user.email}`);
+                const c = userData.calibration;
+                detector.config.EAR_THRESHOLD = c.EAR_THRESHOLD;
+                detector.config.MAR_THRESHOLD = c.MAR_THRESHOLD;
+                detector.config.HEAD_RATIO_THRESHOLD = c.HEAD_RATIO_THRESHOLD;
+                detector.state.isCalibrated = true;
+            } else {
+                console.warn("⚠️ Nenhuma calibração anterior. O usuário precisará calibrar.");
+                // Opcional: abrir modal de calibração automaticamente
+                // toggleModal(calibModal, true);
+            }
+
+            // Inicia o fluxo normal do App
+            startAppFlow(user, userData.role, userData);
 
         } catch (error) {
             console.error("❌ ACESSO NEGADO:", error.message);
             alert(error.message);
             auth.signOut();
             
+            // Reset de UI para tela de login
             appView.classList.remove('active');
             appView.classList.add('hidden');
             loginView.classList.remove('hidden');
             setTimeout(() => loginView.classList.add('active'), 100);
             stopSystem();
             
-            // Garante que modal LGPD suma no erro
             lgpdModal.style.opacity = '0';
             setTimeout(() => lgpdModal.classList.add('hidden'), 300);
         }
         
     } else {
-        // Estado deslogado padrão
+        // Estado deslogado: garante que tudo esteja limpo
         appView.classList.remove('active');
         appView.classList.add('hidden');
         loginView.classList.remove('hidden');
         setTimeout(() => loginView.classList.add('active'), 100);
         
-        // Garante que modal LGPD suma no logout
         lgpdModal.style.opacity = '0';
         setTimeout(() => lgpdModal.classList.add('hidden'), 300);
         
