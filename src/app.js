@@ -180,24 +180,26 @@ auth.onAuthStateChanged(async (user) => {
             else {
                 // FLUXO DE NOVO USUÁRIO
                 const tokenToUse = sessionStorage.getItem('sd_invite_token');
-                if (!tokenToUse) throw new Error("⛔ Link de convite necessário para novos membros.");
+                if (!tokenToUse) throw new Error("⛔ Link de convite necessário.");
 
                 const inviteRef = db.collection('invites').doc(tokenToUse);
-                const inviteDoc = await inviteRef.get();
+                const inviteDoc = await inviteRef.get(); // O 'allow get: if isSignedIn()' permite isso
 
                 if (!inviteDoc.exists) throw new Error("⛔ Convite inválido.");
                 const inviteData = inviteDoc.data();
 
-                userData = {
+                const userData = {
                     displayName: user.displayName || user.email.split('@')[0],
                     email: user.email,
                     photoURL: user.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff',
                     role: inviteData.role,
+                    inviteUsed: tokenToUse,
                     createdAt: new Date(),
                     active: true,
                     lgpdAccepted: false
                 };
-                
+
+                // Agora o Firestore vai aceitar, pois 'inviteUsed' bate com um ID na coleção 'invites'
                 await userRef.set(userData);
                 await inviteRef.update({ usesLeft: firebase.firestore.FieldValue.increment(-1) });
                 sessionStorage.removeItem('sd_invite_token');
