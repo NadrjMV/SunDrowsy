@@ -89,31 +89,59 @@ let earHistory = new Array(50).fill(0.3);
 // --- LOGIN POR E-MAIL E SENHA ---
 const formEmailLogin = document.getElementById('form-email-login');
 if (formEmailLogin) {
-    formEmailLogin.addEventListener('submit', (e) => {
+    formEmailLogin.addEventListener('submit', async (e) => {
         e.preventDefault();
         const email = document.getElementById('login-email').value;
         const password = document.getElementById('login-password').value;
         const btn = document.getElementById('btn-email-login');
+        
+        // Verifica se é um novo cadastro (tem convite salvo)
+        const hasInvite = sessionStorage.getItem('sd_invite_token');
 
         btn.disabled = true;
-        btn.innerText = "Autenticando...";
+        btn.innerText = hasInvite ? "Criando Conta..." : "Autenticando...";
 
-        auth.signInWithEmailAndPassword(email, password)
-            .catch(error => {
-                console.error("Erro Login E-mail:", error);
-                alert("Falha no login: " + error.message);
-                btn.disabled = false;
-                btn.innerText = "Entrar";
-            });
+        try {
+            if (hasInvite) {
+                // Tenta CRIAR a conta primeiro
+                await auth.createUserWithEmailAndPassword(email, password);
+                console.log("🆕 Conta criada com sucesso via convite.");
+            } else {
+                // Fluxo normal de quem já é usuário
+                await auth.signInWithEmailAndPassword(email, password);
+            }
+        } catch (error) {
+            console.error("Erro Auth:", error);
+            
+            // Tratamento amigável: se ele tentar cadastrar algo que já existe, avisa
+            if (error.code === 'auth/email-already-in-use') {
+                alert("Este e-mail já possui cadastro. Tente fazer login normal.");
+            } else {
+                alert("Falha: " + error.message);
+            }
+            
+            btn.disabled = false;
+            btn.innerText = hasInvite ? "Criar Conta" : "Entrar";
+        }
     });
+}
+
+if (sessionStorage.getItem('sd_invite_token')) {
+    const loginBtn = document.getElementById('btn-email-login');
+    if (loginBtn) {
+        loginBtn.innerHTML = '<span class="material-icons-round">person_add</span> Finalizar Cadastro';
+    }
 }
 
 // Verifica se existe token na URL ao carregar
 const urlParams = new URLSearchParams(window.location.search);
 const inviteToken = urlParams.get('convite');
+
 if (inviteToken) {
     console.log("🎟️ Token sequestrado da URL:", inviteToken);
     sessionStorage.setItem('sd_invite_token', inviteToken);
+    // Limpamos a URL para o Firebase não se perder no redirecionamento
+    window.history.replaceState({}, document.title, window.location.pathname);
 }
 
 // --- AUTH ---
@@ -136,131 +164,78 @@ auth.onAuthStateChanged(async (user) => {
             const userRef = db.collection('users').doc(user.uid);
             const doc = await userRef.get();
             
-            // Inicializa com valores padrão para evitar "userRole is not defined"
-            let userData = { 
-                role: 'VIGIA', 
-                active: true, 
-                lgpdAccepted: false 
-            };
+            let userData = { role: 'VIGIA', active: true, lgpdAccepted: false };
 
-            // --- CENÁRIO 1: USUÁRIO JÁ CADASTRADO ---
             if (doc.exists) {
                 userData = { ...userData, ...doc.data() };
+                if (userData.active === false) throw new Error("⛔ CONTA DESATIVADA.");
                 
-                if (userData.active === false) {
-                    throw new Error("⛔ CONTA DESATIVADA: Contacte o administrador.");
-                }
-
-                // Atualiza rastro de login
                 await userRef.set({
                     displayName: user.displayName || userData.displayName || 'Usuário',
                     email: user.email,
                     photoURL: user.photoURL || userData.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff',
                     lastLogin: new Date()
                 }, { merge: true });
-
-                console.log(`✅ Acesso Permitido: ${userData.role}`);
             } 
-            
-            // --- CENÁRIO 2: NOVO USUÁRIO (VIA CONVITE) ---
             else {
-                console.log("👤 Novo visitante detectado. Validando credenciais de convite...");
-                
-                // Recupera o token que salvamos no sessionStorage lá no topo do script
+                // FLUXO DE NOVO USUÁRIO
                 const tokenToUse = sessionStorage.getItem('sd_invite_token');
-
-                if (!tokenToUse) {
-                    // Se não tem token, desloga e barra
-                    throw new Error("⛔ ACESSO NEGADO: Este sistema é restrito. Você precisa de um Link de Convite oficial.");
-                }
+                if (!tokenToUse) throw new Error("⛔ Link de convite necessário para novos membros.");
 
                 const inviteRef = db.collection('invites').doc(tokenToUse);
                 const inviteDoc = await inviteRef.get();
 
-                if (!inviteDoc.exists) {
-                    throw new Error("⛔ Convite inválido ou já expirado.");
-                }
-
+                if (!inviteDoc.exists) throw new Error("⛔ Convite inválido.");
                 const inviteData = inviteDoc.data();
-                const now = new Date();
-                const expiresAt = inviteData.expiresAt.toDate();
 
-                // Validações de segurança do convite
-                if (!inviteData.active) throw new Error("⛔ Este link de convite foi desativado.");
-                if (inviteData.usesLeft <= 0) throw new Error("⛔ Este convite atingiu o limite máximo de usos.");
-                if (expiresAt < now) throw new Error("⛔ Este link de convite expirou.");
-
-                console.log(`🎉 Convite válido! Vinculando como ${inviteData.role}...`);
-                
-                // Monta o perfil do novo colaborador
                 userData = {
                     displayName: user.displayName || user.email.split('@')[0],
                     email: user.email,
                     photoURL: user.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff',
                     role: inviteData.role,
-                    createdAt: now,
+                    createdAt: new Date(),
                     active: true,
-                    invitedBy: inviteData.createdBy,
-                    inviteUsed: tokenToUse,
-                    lastLogin: now,
                     lgpdAccepted: false
                 };
                 
-                // Salva o novo usuário no Firestore
                 await userRef.set(userData);
-
-                // Consome um uso do convite no banco
-                await inviteRef.update({
-                    usesLeft: firebase.firestore.FieldValue.increment(-1)
-                });
-                
-                // Limpa o token para evitar loop de cadastro
+                await inviteRef.update({ usesLeft: firebase.firestore.FieldValue.increment(-1) });
                 sessionStorage.removeItem('sd_invite_token');
             }
 
-            // === LÓGICA DE TRANSIÇÃO DE TELAS (LGPD -> APP) ===
+            // Transição para LGPD ou APP
             if (!userData.lgpdAccepted) {
-                console.log("🔒 LGPD: Aguardando aceite dos termos.");
                 loginView.classList.add('hidden');
                 appView.classList.add('hidden');
                 lgpdModal.classList.remove('hidden');
                 setTimeout(() => lgpdModal.style.opacity = '1', 10);
                 setupLgpdEvents(user.uid);
-                return;
+            } else {
+                startAppFlow(user, userData.role, userData);
             }
-
-            // --- INJEÇÃO DE CALIBRAÇÃO SALVA ---
-            if (userData.calibration && detector) {
-                console.log(`🎯 Calibração Individual aplicada para: ${user.email}`);
-                const c = userData.calibration;
-                detector.config.EAR_THRESHOLD = c.EAR_THRESHOLD;
-                detector.config.MAR_THRESHOLD = c.MAR_THRESHOLD;
-                detector.config.HEAD_RATIO_THRESHOLD = c.HEAD_RATIO_THRESHOLD;
-                detector.state.isCalibrated = true;
-            }
-
-            // Inicia o App se tudo estiver OK
-            startAppFlow(user, userData.role, userData);
 
         } catch (error) {
-            console.error("❌ Erro no fluxo de Auth:", error.message);
             alert(error.message);
             auth.signOut();
-            showLoginView();
         }
-        
     } else {
-        // Usuário deslogado: mostra login e garante limpeza de processos
+        // --- AQUI ESTÁ O TRUQUE ---
+        // Se houver um token no storage, não limpamos a tela agressivamente
+        const hasToken = sessionStorage.getItem('sd_invite_token');
+        if (hasToken) {
+            console.log("⏳ Aguardando login para processar convite salvo...");
+        }
         showLoginView();
         stopSystem();
     }
 });
 
-// Função auxiliar para resetar a UI para o Login
 function showLoginView() {
-    appView.classList.remove('active');
+    // Garante que se houver um convite, a tela de login apareça de forma limpa
     appView.classList.add('hidden');
+    appView.classList.remove('active');
     lgpdModal.classList.add('hidden');
+    
     loginView.classList.remove('hidden');
     setTimeout(() => loginView.classList.add('active'), 100);
 }
