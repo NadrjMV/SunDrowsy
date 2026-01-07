@@ -69,14 +69,28 @@ export function calculateHeadTilt(landmarks) {
 
     if (!leftEye || !rightEye || !mouthTop) return 0;
 
+    // Centro dos olhos
     const eyeCenterX = (leftEye.x + rightEye.x) / 2;
     const eyeCenterY = (leftEye.y + rightEye.y) / 2;
 
-    const verticalDist = Math.hypot(mouthTop.x - eyeCenterX, mouthTop.y - eyeCenterY);
+    // Distância horizontal entre os olhos (nossa régua de escala)
     const horizontalDist = Math.hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y);
+    
+    // Vetor vertical do rosto (do centro dos olhos para a boca)
+    const vX = mouthTop.x - eyeCenterX;
+    const vY = mouthTop.y - eyeCenterY;
+
+    // Ângulo de inclinação lateral (Roll)
+    const rollAngle = Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x);
+
+    // Projetamos a distância vertical no eixo "Y" real do rosto, 
+    // compensando a inclinação lateral (diagonal)
+    const rotatedVerticalDist = Math.abs(vX * Math.sin(rollAngle) + vY * Math.cos(rollAngle));
 
     if (horizontalDist === 0) return 0;
-    return verticalDist / horizontalDist;
+    
+    // Retorna a razão corrigida pela rotação
+    return rotatedVerticalDist / horizontalDist;
 }
 
 // --- NOVA LÓGICA: DETECTOR DE "OLHAR PARA CIMA" ---
