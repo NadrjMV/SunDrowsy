@@ -5,8 +5,8 @@ const FACTORY_CONFIG = {
     // Tempos
     CRITICAL_TIME_MS: 20000,        // 20s (Sono Profundo)
     MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
-    HEAD_DOWN_TIME_MS: 120000,      // 2min (Cabeça baixa)
-    HEAD_CRITICAL_TIME_MS: 25000,   // 20s (Crítico)
+    HEAD_DOWN_TIME_MS: 25000,      // 20s (Cabeça baixa)
+    HEAD_CRITICAL_TIME_MS: 120000,   // 2min (Crítico)
     
     LONG_BLINK_TIME_MS: 1300,
     BLINK_WINDOW_MS: 60000,
