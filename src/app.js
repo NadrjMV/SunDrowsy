@@ -140,36 +140,38 @@ async function checkAccess() {
     const urlParams = new URLSearchParams(window.location.search);
     const inviteToken = urlParams.get('convite');
     const storedToken = sessionStorage.getItem('sd_invite_token');
+    
+    // Prioriza o token da URL, se não houver, usa o do storage
     const tokenToVerify = inviteToken || storedToken;
 
-    // Se não tem token nenhum, não faz nada. O botão continua como "Entrar".
     if (!tokenToVerify) return;
 
     try {
-        // IMPORTANTE: No Console do Firebase, a regra de 'invites' deve ser 'allow get: if true'
         const inviteDoc = await db.collection('invites').doc(tokenToVerify).get();
         
         if (inviteDoc.exists && inviteDoc.data().active && inviteDoc.data().usesLeft > 0) {
-            console.log("🎟️ Convite VÁLIDO detectado. Ativando modo de cadastro.");
+            console.log("🎟️ Convite VÁLIDO detectado.");
             
-            // Só salvamos e mudamos a UI se o convite for REALMENTE válido no banco
+            // Salva para persistir durante o reload do login
             sessionStorage.setItem('sd_invite_token', tokenToVerify);
             
+            // Muda o texto do botão de login
+            const loginBtn = document.getElementById('btn-email-login');
             if (loginBtn) {
                 loginBtn.innerHTML = '<span class="material-icons-round">person_add</span> Finalizar Cadastro';
             }
 
-            // Limpa a URL para ficar bonito
-            if (inviteToken) window.history.replaceState({}, document.title, window.location.pathname);
+            // APENAS AGORA, após validar e mudar a UI, limpamos a URL
+            if (inviteToken) {
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
         } else {
-            // Se o token existe mas é inválido (vencido/sem uso), limpamos tudo
             console.warn("⚠️ Convite inválido ou expirado.");
             sessionStorage.removeItem('sd_invite_token');
         }
     } catch (e) {
-        // Erro de permissão ou rede: mantém o modo LOGIN (mais seguro)
         console.error("Erro ao validar acesso:", e);
-        sessionStorage.removeItem('sd_invite_token');
+        // Não removemos o token aqui para evitar deslogar por erro de rede instável
     }
 }
 
