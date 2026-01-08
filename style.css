@@ -1027,4 +1027,60 @@ select option { background-color: #1a1a1e; color: #fff; padding: 12px; }
     vertical-align: middle;
     margin-right: 10px;
 }
+
+/* Menu de Ações - Glassmorphism de Alta Definição */
+.team-actions-menu {
+    background: rgba(20, 20, 25, 0.8) !important;
+    backdrop-filter: blur(20px) saturate(160%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(160%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6) !important;
+    border-radius: 12px !important;
+    padding: 6px !important;
+    z-index: 1000 !important;
+    min-width: 180px !important;
+    /* Animação suave de entrada */
+    animation: menuAppear 0.2s ease-out !important;
+}
+
+@keyframes menuAppear {
+    from { opacity: 0; transform: translateY(-5px) scale(0.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Itens do Menu - Reset total de estilos de botão nativo */
+.team-menu-item {
+    width: 100% !important;
+    background: transparent !important;
+    border: none !important;
+    color: #fff !important;
+    padding: 10px 14px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    cursor: pointer !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    border-radius: 8px !important;
+    text-align: left !important;
+    transition: background 0.2s ease !important;
+}
+
+.team-menu-item:hover {
+    background: rgba(255, 208, 40, 0.1) !important;
+    color: var(--primary) !important;
+}
+
+.team-menu-item span.material-icons-round {
+    font-size: 18px !important;
+    opacity: 0.8 !important;
+}
+
+/* Divisor sutil */
+.menu-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+    margin: 4px 8px;
+}
+
 @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }

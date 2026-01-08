@@ -83,49 +83,30 @@ auth.onAuthStateChanged(async (user) => {
         const role = userDoc.exists ? userDoc.data().role : 'USER';
         
         if (role !== 'ADMIN' && role !== 'OWNER') {
-            alert("⛔ Acesso Negado: Apenas administradores.");
             window.location.href = 'index.html';
             return;
         }
 
-        console.log(`🔓 Admin logado: ${role}`);
-        
-        // Verifica permissão e ATIVA o modo destruidor automaticamente se for OWNER
-        checkOwnerPermissions(user.uid);
-        
-        // --- CONFIGURAÇÃO DA FOTO DE PERFIL (CLIQUE) ---
-        const adminPhoto = document.getElementById('admin-photo');
-        if(adminPhoto) {
-            adminPhoto.src = user.photoURL;
-            adminPhoto.style.cursor = 'pointer';
-            adminPhoto.title = "Editar Meu Perfil";
-            
-            // Adiciona o evento de clique
-            adminPhoto.onclick = () => {
-                // 1. Remove classe active da sidebar
-                navBtns.forEach(b => b.classList.remove('active'));
-                
-                // 2. Ativa o botão da sidebar correspondente
-                const profileBtn = document.querySelector('.nav-btn[data-view="profile"]');
-                if(profileBtn) profileBtn.classList.add('active');
+        currentUserRole = role;
 
-                // 3. Troca a visualização para Perfil
-                views.forEach(v => v.classList.remove('active'));
-                const viewProfile = document.getElementById('view-profile');
-                if(viewProfile) {
-                    viewProfile.classList.add('active');
-                    loadAdminProfile(); // Carrega os dados
-                }
-            };
-        }
-        // ------------------------------------------------
+        // Flags globais para UI/ações (menu equipe, etc)
+        window.currentAdminRole = role;
+        window.isSystemOwner = (role === 'OWNER');
 
+        // Chamadas iniciais
+        populateUserFilter(); // Popula os nomes no filtro
         setupRealtimeDashboard('today');
-        setupTeamListener(); 
+
+        // Equipe (UI + ações + convites)
+        setupTeamListener();
+        setupInviteSystem();
+        setupModalsTeam();
+
+        // Verifica se é owner para ativar o modo owner (limpar logs etc)
+        checkOwnerPermissions(user.uid);
 
     } catch (error) {
-        console.error("Erro de permissão:", error);
-        window.location.href = 'index.html';
+        console.error("Erro no carregamento inicial:", error);
     }
 });
 
@@ -137,7 +118,6 @@ function checkOwnerPermissions(uid) {
         if (doc.exists) {
             currentUserRole = doc.data().role;
             
-            // AQUI ESTÁ O SEGREDO:
             // Se o banco diz que é OWNER, ativamos a UI de deletar automaticamente.
             if (currentUserRole === 'OWNER') {
                 activateDestroyerUI(); 
@@ -151,9 +131,10 @@ function activateDestroyerUI() {
     console.log("🔒 Painel de Controle: Modo Owner Ativo.");
     
     // 1. Seta a flag interna
-    window.destroyerMode = true; 
-
-    // 2. Mostra o Botão Mestre de Limpeza
+    window.destroyerMode = true;
+    window.isSystemOwner = true;
+    window.currentAdminRole = 'OWNER';
+// 2. Mostra o Botão Mestre de Limpeza
     const btnWipe = document.getElementById('btn-wipe-logs');
     if(btnWipe) {
         btnWipe.style.display = 'inline-flex';
@@ -163,7 +144,6 @@ function activateDestroyerUI() {
     }
 
     // 3. Atualiza a tabela para mostrar as lixeirinhas individuais
-    // (Reutiliza os logs que já estão na memória)
     if(typeof filterAndRenderLogs === 'function') {
         filterAndRenderLogs();
     } else if (typeof renderGroupedTable === 'function') {
@@ -238,23 +218,18 @@ if(adminFormProfile) {
             // 3. Atualiza header do admin
             const adminHeaderPhoto = document.getElementById('admin-photo');
             if (adminHeaderPhoto) {
-                adminHeaderPhoto.style.cursor = 'pointer'; // Indica que é clicável
-                adminHeaderPhoto.title = "Ir para Meu Perfil"; // Tooltip
+                adminHeaderPhoto.style.cursor = 'pointer'; 
+                adminHeaderPhoto.title = "Ir para Meu Perfil"; 
 
                 adminHeaderPhoto.addEventListener('click', () => {
-                    // 1. Remove classe active de todos os botões da sidebar
                     navBtns.forEach(b => b.classList.remove('active'));
-                    
-                    // 2. Adiciona active no botão de perfil
                     const profileBtn = document.querySelector('.nav-btn[data-view="profile"]');
                     if(profileBtn) profileBtn.classList.add('active');
-
-                    // 3. Troca a View
                     views.forEach(v => v.classList.remove('active'));
                     const profileView = document.getElementById('view-profile');
                     if(profileView) {
                         profileView.classList.add('active');
-                        loadAdminProfile(); // Carrega os dados
+                        loadAdminProfile();
                     }
                 });
             }
@@ -280,60 +255,199 @@ if(periodFilter) {
     });
 }
 
-// NOVO: Listener do Filtro de Usuário
 if(userFilter) {
     userFilter.addEventListener('change', () => {
-        filterAndRenderLogs(); // Apenas filtra o que já está na memória
+        if (unsubscribeLogs) unsubscribeLogs();
+        setupRealtimeDashboard(periodFilter ? periodFilter.value : 'today');
     });
 }
 
-// --- LÓGICA DO DASHBOARD ---
-function setupRealtimeDashboard(period) {
-    console.log(`📡 Conectando stream: ${period}`);
-    if(tableBody) tableBody.style.opacity = '0.5';
+// --- LÓGICA DO DASHBOARD (CORE) ---
+function formatDateFolder(dateObj) {
+    // YYYY-MM-DD em UTC-3 local (usa o relógio do navegador)
+    const y = dateObj.getFullYear();
+    const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const d = String(dateObj.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+}
 
-    const now = new Date();
-    // Lógica simples de data (aprimorada para pegar logs passados se necessário futuramente)
-    const todayFolder = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
-    
-    let query;
-    try {
-        // Tenta buscar em group (requer index) ou fallback para path direto
-        query = db.collectionGroup(todayFolder); 
-    } catch (e) {
-        query = db.collection('logs').doc(auth.currentUser.uid).collection(todayFolder);
+function buildDateFolders(startDate, endDate) {
+    const folders = [];
+    const d = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+    const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+    while (d <= end) {
+        folders.push(formatDateFolder(d));
+        d.setDate(d.getDate() + 1);
+    }
+    return folders;
+}
+
+async function fetchLegacyLogsForUsers(uids, dateFolders, startDate, concurrency = 12) {
+    // LEGADO (lento por natureza): /logs/{uid}/{YYYY-MM-DD}/{doc}
+    // Otimização: executa as consultas em paralelo com limite de concorrência.
+    const out = [];
+    const tasks = [];
+    for (const uid of uids) {
+        for (const folder of dateFolders) tasks.push({ uid, folder });
+    }
+    if (!tasks.length) return out;
+
+    let cursor = 0;
+
+    async function worker() {
+        while (cursor < tasks.length) {
+            const i = cursor++;
+            const { uid, folder } = tasks[i];
+            try {
+                const snap = await db.collection('logs').doc(uid).collection(folder)
+                    .where('timestamp', '>=', startDate)
+                    .orderBy('timestamp', 'desc')
+                    .get();
+
+                snap.forEach(doc => {
+                    const data = doc.data();
+                    out.push({
+                        ...data,
+                        id: doc.id,
+                        uid: data.uid || uid,
+                        dateFolder: folder,
+                        __source: 'legacy'
+                    });
+                });
+            } catch (e) {
+                // Normal: coleção pode não existir no dia OU pode faltar índice.
+            }
+        }
     }
 
-    unsubscribeLogs = query.onSnapshot((snapshot) => {
-        const logs = [];
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const uidFromPath = doc.ref.parent.parent ? doc.ref.parent.parent.id : null;
-            
-            logs.push({ 
-                ...data, 
-                uid: data.uid || uidFromPath,
-                // *** CRÍTICO PARA DELEÇÃO ***
-                id: doc.id,               // ID do documento
-                dateFolder: doc.ref.parent.id // Nome da coleção (ex: 2023-10-13)
-            });
-        });
-        
-        globalRawLogs = logs;
-        if(tableBody) tableBody.style.opacity = '1';
-        
-        // Verifica se é OWNER para mostrar botões de perigo
-        // (Já é chamado no auth, mas aqui atualiza caso mude algo em tempo real)
-        if(currentUserRole === 'OWNER') activateDestroyerUI();
-
-        filterAndRenderLogs();
-
-    }, (error) => {
-        console.error("Erro Stream Logs:", error);
-    });
+    const workers = Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker());
+    await Promise.all(workers);
+    return out;
 }
 
-// NOVA FUNÇÃO DE FILTRAGEM
+async function fetchUnifiedLogs(period, selectedUid) {
+    const now = new Date();
+    let startDate = new Date();
+
+    if (period === 'week') startDate.setDate(now.getDate() - 7);
+    else if (period === 'month') startDate.setMonth(now.getMonth() - 1);
+    else startDate.setHours(0, 0, 0, 0);
+
+    // range de pastas (para legado)
+    const dateFolders = buildDateFolders(startDate, now);
+
+    // uids alvo
+    let uids = [];
+    if (selectedUid && selectedUid !== 'ALL') {
+        uids = [selectedUid];
+    } else {
+        const usersSnap = await db.collection('users').get();
+        usersSnap.forEach(u => uids.push(u.id));
+    }
+
+    // NOVO: collectionGroup('logs') => /logs/{uid}/logs/{doc}
+    const unified = [];
+    try {
+        const snap = await db.collectionGroup('logs')
+            .where('timestamp', '>=', startDate)
+            .orderBy('timestamp', 'desc')
+            .get();
+
+        snap.forEach(doc => {
+            const data = doc.data();
+            const uidFromPath = doc.ref.parent.parent ? doc.ref.parent.parent.id : null;
+
+            // se estiver filtrando por usuário, aplica aqui pra não encher memória
+            if (selectedUid && selectedUid !== 'ALL') {
+                const target = data.uid || uidFromPath;
+                if (target !== selectedUid) return;
+            }
+
+            unified.push({
+                ...data,
+                id: doc.id,
+                uid: data.uid || uidFromPath,
+                dateFolder: doc.ref.parent.id,
+                __source: 'unified'
+            });
+        });
+    } catch (e) {
+        console.error("❌ Erro ao buscar logs unificados:", e);
+    }
+
+    let legacy = [];
+const shouldFetchLegacy =
+    (period === 'today') || (selectedUid && selectedUid !== 'ALL');
+
+// Performance mode:
+// - 'today' carrega legado (só 1 pasta/dia) => rápido
+// - 'week'/'month' só carrega legado quando você filtra 1 usuário (evita varrer a equipe inteira)
+if (shouldFetchLegacy) {
+    const legacyConcurrency = (period === 'today') ? 24 : 10;
+    legacy = await fetchLegacyLogsForUsers(uids, dateFolders, startDate, legacyConcurrency);
+} else {
+    console.warn("⚡ Performance: pulando legado em 'week/month' com 'Todos os Usuários'. Rode migração dos logs legados para ficar instantâneo.");
+}
+
+    // merge + dedupe (pode existir duplicado se você migrar/copiar)
+    const seen = new Set();
+    const merged = [];
+    for (const item of [...unified, ...legacy]) {
+        const k = `${item.uid || 'NA'}|${item.timestamp?.seconds || item.timestamp?.toMillis?.() || '0'}|${item.type || ''}|${item.reason || ''}`;
+        if (seen.has(k)) continue;
+        seen.add(k);
+        merged.push(item);
+    }
+
+    // ordena desc por timestamp
+    merged.sort((a, b) => {
+        const ta = a.timestamp?.seconds ? a.timestamp.seconds : (a.timestamp?.toMillis ? Math.floor(a.timestamp.toMillis()/1000) : 0);
+        const tb = b.timestamp?.seconds ? b.timestamp.seconds : (b.timestamp?.toMillis ? Math.floor(b.timestamp.toMillis()/1000) : 0);
+        return tb - ta;
+    });
+
+    return { logs: merged, startDate };
+}
+
+// --- LÓGICA DO DASHBOARD (CORE) ---
+async function setupRealtimeDashboard(period) {
+    console.log(`📡 Iniciando busca de logs. Período: ${period}`);
+    if(tableBody) tableBody.style.opacity = '0.5';
+
+    const selectedUid = userFilter ? userFilter.value : 'ALL';
+
+    try {
+        const { logs } = await fetchUnifiedLogs(period, selectedUid);
+        console.log(`📊 Snapshot recebido: ${logs.length} documentos encontrados.`);
+        globalRawLogs = logs;
+        if(tableBody) tableBody.style.opacity = '1';
+        filterAndRenderLogs();
+    } catch (error) {
+        console.error("❌ Erro ao carregar logs:", error);
+        if(tableBody) tableBody.style.opacity = '1';
+    }
+}
+
+async function populateUserFilter() {
+    if (!userFilter) return;
+    
+    try {
+        const snapshot = await db.collection('users').orderBy('displayName').get();
+        userFilter.innerHTML = '<option value="ALL">Todos os Usuários</option>';
+        
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const option = document.createElement('option');
+            option.value = doc.id; 
+            option.textContent = data.displayName || data.email || doc.id;
+            userFilter.appendChild(option);
+        });
+        console.log("👥 Filtro de usuários populado com sucesso.");
+    } catch (error) {
+        console.error("❌ Erro ao popular filtro de usuários:", error);
+    }
+}
+
 function filterAndRenderLogs() {
     const selectedUser = userFilter.value;
     let filteredLogs = [];
@@ -348,11 +462,8 @@ function filterAndRenderLogs() {
 }
 
 function processLogs(logs) {
-    // Ordena logs crus para processamento
     logs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 
-    // --- 1. CÁLCULO DE KPIs (CORRIGIDO) ---
-    // Agora conta como crítico qualquer log que contenha "PERIGO", "CRÍTICO" ou "SONO PROFUNDO"
     const criticalAlerts = logs.filter(l => 
         l.type === 'ALARM' && l.reason && (
             l.reason.includes('SONO PROFUNDO') || 
@@ -370,7 +481,6 @@ function processLogs(logs) {
         else if (l.userName) uniqueUsers.add(l.userName);
     });
     
-    // UI Updates KPI
     animateValue(kpiAlerts, criticalAlerts);
     animateValue(kpiMicrosleeps, microSleeps);
     animateValue(kpiLunches, lunches);
@@ -387,14 +497,9 @@ function processLogs(logs) {
         }
     }
 
-    // Renderiza os gráficos
     renderCharts(logs);
-    
-    // Renderiza as Tabelas
     const mergedLogs = mergeLunchEvents(logs);
     renderGroupedTable(mergedLogs);
-
-    // --- RENDERIZA A ABA RELATÓRIOS ---
     renderReports(logs);
 }
 
@@ -402,7 +507,6 @@ function processLogs(logs) {
 function renderReports(logs) {
     if (!logs || logs.length === 0) return;
 
-    // --- CRIAÇÃO DO TOOLTIP (SE NÃO EXISTIR) ---
     if (!tooltipEl) {
         tooltipEl = document.createElement('div');
         tooltipEl.className = 'heatmap-tooltip';
@@ -411,7 +515,6 @@ function renderReports(logs) {
 
     const alarmLogs = logs.filter(l => l.type === 'ALARM');
 
-    // Preparação de Dados
     const userStats = {};
     const heatmapData = {}; 
 
@@ -419,11 +522,9 @@ function renderReports(logs) {
         const uid = log.uid || 'anon';
         const name = log.userName || 'Desconhecido';
         
-        // Totais para Ranking
         if (!userStats[uid]) userStats[uid] = { name: name, count: 0, uid: uid };
         userStats[uid].count++;
 
-        // Totais para Heatmap
         const hour = log.timestamp.toDate().getHours(); 
         if (!heatmapData[uid]) heatmapData[uid] = Array(24).fill(0);
         heatmapData[uid][hour]++;
@@ -431,7 +532,6 @@ function renderReports(logs) {
 
     const sortedUsers = Object.values(userStats).sort((a, b) => b.count - a.count);
 
-    // --- GRÁFICO RANKING (CORRIGIDO: NOMES VISÍVEIS) ---
     const ctxRanking = document.getElementById('rankingChart');
     if (ctxRanking) {
         if (charts.ranking) charts.ranking.destroy();
@@ -447,7 +547,7 @@ function renderReports(logs) {
                 }]
             },
             options: {
-                indexAxis: 'y', // Barra Horizontal
+                indexAxis: 'y', 
                 responsive: true, 
                 maintainAspectRatio: false,
                 scales: { 
@@ -456,10 +556,10 @@ function renderReports(logs) {
                         ticks: { color: '#8E8E93' } 
                     }, 
                     y: { 
-                        display: true, // <--- OBRIGATÓRIO TRUE PARA MOSTRAR NOMES
-                        grid: { display: false }, // Esconde linhas de grade mas mantém nomes
+                        display: true, 
+                        grid: { display: false }, 
                         ticks: { 
-                            color: '#fff', // Texto Branco
+                            color: '#fff', 
                             font: { size: 11, weight: '600' } 
                         } 
                     } 
@@ -469,12 +569,9 @@ function renderReports(logs) {
         });
     }
 
-    // --- MAPA DE CALOR ---
     const heatmapContainer = document.getElementById('heatmap-container');
     if (heatmapContainer) {
         let html = '<div class="heatmap-grid">';
-        
-        // Header
         html += '<div style="font-size:0.7rem; color:#888; text-align:right; padding-right:10px; align-self:end;">COLABORADOR</div>'; 
         for (let h = 0; h < 24; h++) {
             const hh = String(h).padStart(2, '0');
@@ -482,14 +579,12 @@ function renderReports(logs) {
         }
         html += '<div class="heatmap-header-cell">TTL</div>';
 
-        // Linhas
         const usersToRender = sortedUsers.slice(0, 10);
         
         if (usersToRender.length === 0) {
             html += '<div style="grid-column: 1/-1; padding:30px; text-align:center; color: var(--text-muted);">Nenhum dado térmico capturado hoje.</div>';
         } else {
             usersToRender.forEach(user => {
-                // Escapa aspas para o onclick
                 const safeName = user.name.replace(/'/g, "\\'"); 
                 html += `<div class="heatmap-user-label" title="${user.name}">${user.name.split(' ')[0]}</div>`;
                 
@@ -527,8 +622,6 @@ function renderReports(logs) {
 }
 
 // --- LÓGICA DO MODAL DE DETALHES ---
-
-// 1. Elementos do Modal
 const hmModal = document.getElementById('heatmap-details-modal');
 const hmTitle = document.getElementById('hm-modal-title');
 const hmSubtitle = document.getElementById('hm-modal-subtitle');
@@ -536,15 +629,12 @@ const hmList = document.getElementById('hm-logs-list');
 const btnCloseHm = document.getElementById('close-hm-modal');
 const btnCloseHmFooter = document.getElementById('btn-close-hm-footer');
 
-// 2. Fechar Modal
 if(btnCloseHm) btnCloseHm.onclick = () => hmModal.classList.add('hidden');
 if(btnCloseHmFooter) btnCloseHmFooter.onclick = () => hmModal.classList.add('hidden');
 
-// 3. Função Global (Window) para abrir o modal
 window.openHeatmapDetails = function(uid, name, hour) {
     if (!globalRawLogs || globalRawLogs.length === 0) return;
 
-    // A. Filtra os logs exatos (Mesmo UID, Mesma Hora, Apenas Alarmes)
     const filtered = globalRawLogs.filter(log => {
         const logHour = log.timestamp.toDate().getHours();
         return log.uid === uid && logHour === hour && log.type === 'ALARM';
@@ -552,16 +642,12 @@ window.openHeatmapDetails = function(uid, name, hour) {
 
     if (filtered.length === 0) return;
 
-    // B. Popula o Header
     const hourStr = String(hour).padStart(2, '0');
     if(hmTitle) hmTitle.innerText = `Incidentes: ${name}`;
     if(hmSubtitle) hmSubtitle.innerText = `Horário: ${hourStr}:00 às ${hourStr}:59 • Total: ${filtered.length} ocorrências`;
 
-    // C. Gera a Lista HTML
     if(hmList) {
         hmList.innerHTML = '';
-        
-        // Ordena por minuto/segundo
         filtered.sort((a, b) => a.timestamp.seconds - b.timestamp.seconds);
 
         filtered.forEach(log => {
@@ -584,22 +670,16 @@ window.openHeatmapDetails = function(uid, name, hour) {
         });
     }
 
-    // D. Abre o Modal (CORREÇÃO AQUI)
     if(hmModal) {
         hmModal.classList.remove('hidden');
-        
-        // Força o navegador a "redesenhar" a opacidade para 1
-        // Sem isso, ele herda o 'opacity: 0' do fechamento anterior
         requestAnimationFrame(() => {
             hmModal.style.opacity = '1';
         });
     }
 };
 
-// Funções de Tooltip (Mantidas)
 window.showTooltip = function(e, name, hour, count) {
-    if(!tooltipEl) return;
-    if(count === 0) return;
+    if(!tooltipEl || count === 0) return;
     const hourStr = String(hour).padStart(2, '0') + ":00";
     const nextHourStr = String(hour + 1).padStart(2, '0') + ":00";
     tooltipEl.innerHTML = `
@@ -616,11 +696,8 @@ window.showTooltip = function(e, name, hour, count) {
 
 window.moveTooltip = function(e) {
     if(!tooltipEl) return;
-    // Pega a posição do mouse e soma um offset
     const x = e.clientX + 15;
     const y = e.clientY + 15;
-    
-    // Evita sair da tela (básico)
     tooltipEl.style.left = x + 'px';
     tooltipEl.style.top = y + 'px';
 };
@@ -629,24 +706,21 @@ window.hideTooltip = function() {
     if(tooltipEl) tooltipEl.style.display = 'none';
 };
 
-// NOVA FUNC: Junta o Início e o Fim do almoço
+// --- JUNÇÃO DE ALMOÇO ---
 function mergeLunchEvents(rawLogs) {
     const combined = [];
-    const activeLunches = new Map(); // Guarda temporariamente quem começou o almoço
+    const activeLunches = new Map();
 
-    // Processamos do mais antigo pro mais novo pra casar Início -> Fim
     const sortedAsc = [...rawLogs].sort((a, b) => a.timestamp.seconds - b.timestamp.seconds);
 
     sortedAsc.forEach(log => {
         if (log.type === 'LUNCH_START') {
-            // Guarda o início na memória
             activeLunches.set(log.uid, log);
         } 
         else if (log.type === 'LUNCH_END') {
             const startLog = activeLunches.get(log.uid);
             
             if (startLog) {
-                // FECHOU O PAR: Calcula tempo
                 const start = startLog.timestamp.toDate();
                 const end = log.timestamp.toDate();
                 const diffMs = end - start;
@@ -656,26 +730,22 @@ function mergeLunchEvents(rawLogs) {
                 const timeStrEnd = end.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
                 combined.push({
-                    ...startLog, // Mantém dados do usuário
-                    type: 'LUNCH_REPORT', // Tipo especial pra tabela
-                    timestamp: log.timestamp, // Usa a hora do fim para ordenação
-                    reason: `Pausa Alimentar (${minutes} min)`, // Texto do Badge
-                    details: `Das ${timeStrStart} às ${timeStrEnd}` // Texto detalhado
+                    ...startLog, 
+                    type: 'LUNCH_REPORT', 
+                    timestamp: log.timestamp, 
+                    reason: `Pausa Alimentar (${minutes} min)`, 
+                    details: `Das ${timeStrStart} às ${timeStrEnd}` 
                 });
-                
-                activeLunches.delete(log.uid); // Remove da memória
+                activeLunches.delete(log.uid);
             } else {
-                // Fim sem início (pode acontecer se o log de inicio foi perdido ou é de ontem)
                 combined.push(log); 
             }
         } 
         else {
-            // Alarmes e outros logs passam direto
             combined.push(log);
         }
     });
 
-    // Quem sobrou no mapa ainda está almoçando
     activeLunches.forEach(log => {
         const start = log.timestamp.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         combined.push({
@@ -686,10 +756,10 @@ function mergeLunchEvents(rawLogs) {
         });
     });
 
-    // Retorna ordenado do mais recente para o antigo (para a tabela)
     return combined.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 }
 
+// --- MÓDULO EQUIPE ---
 export function initTeamModule() {
     setupTeamListener();
     setupInviteSystem();
@@ -700,7 +770,6 @@ function setupTeamListener() {
     const teamGrid = document.getElementById('team-grid-container');
     if(!teamGrid) return;
     
-    // 1. Injeta a Estrutura do Painel (Tech Design)
     teamGrid.innerHTML = `
         <div class="tech-panel">
             <div class="tech-toolbar">
@@ -725,25 +794,24 @@ function setupTeamListener() {
         </div>
     `;
 
-    // 2. Listeners de Filtro e Busca
+    // Ações do menu (3 pontos) - 1 listener só
+    bindTeamActionsDelegation();
+
     const searchInput = document.getElementById('team-search');
     const roleFilter = document.getElementById('team-role-filter');
 
     const applyTeamFilters = () => {
         const term = searchInput.value.toLowerCase();
-        const filterRole = roleFilter.value; // 'ALL', 'GUARD', 'ADMIN', 'OWNER'
+        const filterRole = roleFilter.value; 
 
         const filtered = localUsersList.filter(u => {
-            // Normaliza o cargo para comparação
             let normalizedRole = 'GUARD';
             if (u.role === 'admin' || u.role === 'ADMIN') normalizedRole = 'ADMIN';
             if (u.role === 'dono' || u.role === 'OWNER') normalizedRole = 'OWNER';
             
-            // Verifica Texto (Nome ou Email)
             const matchText = (u.displayName && u.displayName.toLowerCase().includes(term)) || 
                               (u.email && u.email.toLowerCase().includes(term));
             
-            // Verifica Cargo
             const matchRole = (filterRole === 'ALL') || (normalizedRole === filterRole);
 
             return matchText && matchRole;
@@ -754,8 +822,7 @@ function setupTeamListener() {
     searchInput.addEventListener('input', applyTeamFilters);
     roleFilter.addEventListener('change', applyTeamFilters);
 
-    // 3. Conexão Realtime com Firebase
-    if(unsubscribeTeam) unsubscribeTeam(); // Evita duplicidade
+    if(unsubscribeTeam) unsubscribeTeam(); 
 
     unsubscribeTeam = db.collection('users').onSnapshot(snapshot => {
         localUsersList = [];
@@ -769,7 +836,6 @@ function setupTeamListener() {
             });
         });
 
-        // Ordenação: Vigia -> Admin -> Dono
         const roleWeight = {
             'guard': 1, 'VIGIA': 1, 'vigia': 1,
             'admin': 2, 'ADMIN': 2,
@@ -784,11 +850,146 @@ function setupTeamListener() {
             return a.displayName.localeCompare(b.displayName);
         });
 
-        applyTeamFilters(); // Renderiza a lista inicial
+        applyTeamFilters(); 
 
     }, error => {
         console.error("Erro ao carregar equipe:", error);
         document.getElementById('tech-team-list').innerHTML = `<p style="text-align:center; color: var(--danger);">Erro ao carregar dados.</p>`;
+    });
+}
+
+
+function bindTeamActionsDelegation() {
+    const listEl = document.getElementById('tech-team-list');
+    const confirmModal = document.getElementById('confirm-action-modal');
+    const roleModal = document.getElementById('role-change-modal');
+    if (!listEl) return;
+
+    if (listEl.dataset.actionsBound === '1') return;
+    listEl.dataset.actionsBound = '1';
+
+    const closeAllMenus = () => {
+        document.querySelectorAll('.team-actions-menu').forEach(m => m.classList.add('hidden'));
+    };
+
+    document.addEventListener('click', (e) => {
+        const inside = e.target.closest('.team-actions-btn') || e.target.closest('.team-actions-menu');
+        if (!inside) closeAllMenus();
+    });
+
+    listEl.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.team-actions-btn');
+        if (btn) {
+        e.stopPropagation();
+        const uid = btn.dataset.uid;
+        const menu = document.querySelector(`.team-actions-menu[data-menu-for="${uid}"]`);
+        
+        const isOpen = !menu.classList.contains('hidden');
+        closeAllMenus();
+        
+        if (!isOpen) {
+            menu.classList.remove('hidden');
+            // Garante que o menu não seja cortado pelo overflow do container
+            menu.style.position = 'absolute';
+            menu.style.right = '0';
+            menu.style.top = '40px';
+        }
+        return;
+    }
+
+        const item = e.target.closest('.team-menu-item');
+        if (!item) return;
+
+        e.stopPropagation();
+        const { action, uid } = item.dataset;
+        const userName = item.closest('.tech-list-item').querySelector('span').innerText;
+
+        // --- AÇÃO: VER LOGS ---
+        if (action === 'view-logs') {
+            const userFilter = document.getElementById('user-filter');
+            if (userFilter) userFilter.value = uid;
+            if (typeof filterAndRenderLogs === 'function') filterAndRenderLogs();
+            const dashBtn = document.querySelector('.nav-btn[data-view="dashboard"]');
+            if (dashBtn) dashBtn.click();
+            closeAllMenus();
+            return;
+        }
+
+        // --- AÇÃO: MUDAR ROLE (MODAL BONITO) ---
+        if (action === 'set-role') {
+            if (!window.isSystemOwner) return; 
+            
+            const select = document.getElementById('new-role-select');
+            const btnSave = document.getElementById('btn-role-save');
+            
+            roleModal.classList.remove('hidden');
+            setTimeout(() => roleModal.style.opacity = '1', 10);
+
+            btnSave.onclick = async () => {
+                const newRole = select.value;
+                btnSave.disabled = true;
+                btnSave.innerText = "Salvando...";
+                try {
+                    await db.collection('users').doc(uid).update({ role: newRole });
+                    roleModal.style.opacity = '0';
+                    setTimeout(() => roleModal.classList.add('hidden'), 300);
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    btnSave.disabled = false;
+                    btnSave.innerText = "Salvar";
+                }
+            };
+
+            document.getElementById('btn-role-cancel').onclick = () => {
+                roleModal.style.opacity = '0';
+                setTimeout(() => roleModal.classList.add('hidden'), 300);
+            };
+            closeAllMenus();
+        }
+
+        // --- AÇÃO: DESATIVAR/ATIVAR (MODAL DE CONFIRMAÇÃO) ---
+        if (action === 'toggle-disabled') {
+            if (!window.isSystemOwner) return;
+
+            const ref = db.collection('users').doc(uid);
+            const snap = await ref.get();
+            const isDisabled = snap.exists ? !!snap.data().disabled : false;
+
+            const confirmTitle = document.getElementById('confirm-title');
+            const confirmDesc = document.getElementById('confirm-desc');
+            const btnExec = document.getElementById('btn-confirm-execute');
+            
+            confirmTitle.innerText = isDisabled ? "Reativar Conta?" : "Desativar Conta?";
+            confirmDesc.innerText = isDisabled 
+                ? `O colaborador ${userName} voltará a ter acesso ao monitoramento.`
+                : `O colaborador ${userName} será impedido de acessar o sistema imediatamente.`;
+            
+            btnExec.innerText = isDisabled ? "Reativar" : "Desativar";
+            btnExec.style.background = isDisabled ? "var(--safe)" : "var(--danger)";
+
+            confirmModal.classList.remove('hidden');
+            setTimeout(() => confirmModal.style.opacity = '1', 10);
+
+            btnExec.onclick = async () => {
+                btnExec.disabled = true;
+                try {
+                    await ref.update({ disabled: !isDisabled });
+                    confirmModal.style.opacity = '0';
+                    setTimeout(() => confirmModal.classList.add('hidden'), 300);
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    btnExec.disabled = false;
+                }
+            };
+
+            document.getElementById('btn-confirm-cancel').onclick = () => {
+                confirmModal.style.opacity = '0';
+                setTimeout(() => confirmModal.classList.add('hidden'), 300);
+            };
+            closeAllMenus();
+        }
     });
 }
 
@@ -810,8 +1011,7 @@ function renderTeamList(users) {
     users.forEach(user => {
         const photo = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName)}&background=333&color=fff`;
         
-        // Define o Badge Neon conforme o cargo
-        let roleBadge = `<span class="badge-neon badge-user">VIGIA</span>`; // Default
+        let roleBadge = `<span class="badge-neon badge-user">VIGIA</span>`; 
         if(user.role === 'OWNER' || user.role === 'dono') roleBadge = `<span class="badge-neon badge-owner">DONO</span>`;
         else if(user.role === 'ADMIN' || user.role === 'admin') roleBadge = `<span class="badge-neon badge-admin">ADMIN</span>`;
         else if(user.role === 'VIGIA' || user.role === 'GUARD') roleBadge = `<span class="badge-neon badge-guard">VIGIA</span>`;
@@ -830,10 +1030,37 @@ function renderTeamList(users) {
                 ${roleBadge}
             </div>
             
-            <div style="display: flex; gap: 8px; margin-left: 15px;">
-                 <button class="btn-icon-secondary" style="width: 36px; height: 36px; border-radius: 8px; background: rgba(255,255,255,0.05); color: #fff; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; display: flex; align-items: center; justify-content: center;" title="Ver Perfil">
+            <div style="display:flex; gap:8px; margin-left:15px; position:relative;">
+                 <button
+                   class="btn-icon-secondary team-actions-btn"
+                   data-uid="${user.uid}"
+                   data-name="${(user.displayName || '').replace(/"/g,'&quot;')}"
+                   style="width:36px; height:36px; border-radius:8px; background:rgba(255,255,255,0.05); color:#fff; border:1px solid rgba(255,255,255,0.1); cursor:pointer; display:flex; align-items:center; justify-content:center;"
+                   title="Ações"
+                 >
                     <span class="material-icons-round" style="font-size: 20px;">more_horiz</span>
-                </button>
+                 </button>
+
+                 <div class="team-actions-menu hidden" data-menu-for="${user.uid}">
+                    <button class="team-menu-item" data-action="view-logs" data-uid="${user.uid}">
+                        <span class="material-icons-round" style="color: var(--primary);">analytics</span>
+                        Ver Atividade
+                    </button>
+
+                    ${window.isSystemOwner ? `
+                        <div class="menu-divider"></div>
+                        
+                        <button class="team-menu-item" data-action="set-role" data-uid="${user.uid}">
+                            <span class="material-icons-round">manage_accounts</span>
+                            Mudar Acesso
+                        </button>
+
+                        <button class="team-menu-item" data-action="toggle-disabled" data-uid="${user.uid}" style="color: #FF453A !important;">
+                            <span class="material-icons-round">block</span>
+                            ${user.disabled ? 'Reativar Conta' : 'Suspender Acesso'}
+                        </button>
+                    ` : ''}
+                </div>
             </div>
         </div>
         `;
@@ -842,84 +1069,70 @@ function renderTeamList(users) {
 }
 
 function setupInviteSystem() {
-    const formCreateInvite = document.getElementById('form-create-invite');
-    const addMemberModal = document.getElementById('add-member-modal');
-    const inviteResultModal = document.getElementById('invite-result-modal');
-    
-    // Inputs Resultado
-    const resultLinkInput = document.getElementById('result-link');
-    const resultMsgDiv = document.getElementById('result-message');
-    const btnCopyLink = document.getElementById('btn-copy-link');
-    const btnCopyMsg = document.getElementById('btn-copy-msg');
-    const btnShareWpp = document.getElementById('btn-share-wpp');
+    if (!formCreateInvite) return;
 
-    if(formCreateInvite) {
-        formCreateInvite.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const role = document.getElementById('invite-role').value;
-            const uses = parseInt(document.getElementById('invite-uses').value);
-            const days = parseInt(document.getElementById('invite-days').value);
-            const submitBtn = formCreateInvite.querySelector('button[type="submit"]');
+    formCreateInvite.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const role = document.getElementById('invite-role').value;
+        const uses = parseInt(document.getElementById('invite-uses').value);
+        const days = parseInt(document.getElementById('invite-days').value);
+        const submitBtn = formCreateInvite.querySelector('button[type="submit"]');
 
-            try {
-                submitBtn.disabled = true;
-                submitBtn.innerText = "Gerando...";
-                
-                // Gera token único
-                const token = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
-                const expiresAt = new Date();
-                expiresAt.setDate(expiresAt.getDate() + days);
+        try {
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = `<span class="loader" style="width:18px; height:18px; border-width:2px;"></span> Gerando...`;
+            
+            const token = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + days);
 
-                // Salva no Firestore
-                await db.collection('invites').doc(token).set({
-                    token: token,
-                    role: role,
-                    maxUses: uses,
-                    usesLeft: uses,
-                    expiresAt: expiresAt,
-                    createdBy: auth.currentUser.uid,
-                    createdAt: new Date(),
-                    active: true
-                });
+            await db.collection('invites').doc(token).set({
+                token, role, maxUses: uses, usesLeft: uses,
+                expiresAt, createdBy: auth.currentUser.uid,
+                createdAt: new Date(), active: true
+            });
 
-                // Gera Link
-                const baseUrl = window.location.origin + window.location.pathname.replace('admin.html', 'index.html');
-                const finalLink = `${baseUrl.split('?')[0]}?convite=${token}`;
-                
-                const msgTemplate = `💼 *Convite Oficial - SunDrowsy*\n\nVocê foi convidado a integrar a plataforma como *${role}*.\n\n📅 Expira em *${days} dia(s)*\n🔢 Válido para *${uses} uso(s)*\n\n*Clique no link abaixo para criar sua conta:*\n${finalLink}`;
+            const baseUrl = window.location.origin + window.location.pathname.replace('admin.html', 'index.html');
+            const finalLink = `${baseUrl.split('?')[0]}?convite=${token}`;
+            
+            const msgTemplate = `💼 *Convite Oficial - SunDrowsy*\n\nVocê foi convidado a integrar a plataforma como *${role}*.\n\n📅 Expira em *${days} dia(s)*\n🔢 Válido para *${uses} uso(s)*\n\n*Clique no link abaixo para criar sua conta:*\n${finalLink}`;
 
-                // Popula Modal de Resultado
-                resultLinkInput.value = finalLink;
-                resultMsgDiv.innerText = msgTemplate;
+            resultLinkInput.value = finalLink;
+            resultMsgDiv.innerText = msgTemplate;
 
-                // Troca os Modais
+            // Transição elegante entre modais
+            addMemberModal.style.opacity = '0';
+            setTimeout(() => {
                 addMemberModal.classList.add('hidden');
                 inviteResultModal.classList.remove('hidden');
-                setTimeout(() => inviteResultModal.style.opacity = '1', 10);
+                setTimeout(() => inviteResultModal.style.opacity = '1', 50);
+            }, 300);
 
-                // Ações de Cópia
-                btnCopyLink.onclick = () => { navigator.clipboard.writeText(finalLink); alert('Link copiado!'); };
-                btnCopyMsg.onclick = () => { navigator.clipboard.writeText(msgTemplate); alert('Mensagem copiada!'); };
-                btnShareWpp.onclick = () => { window.open(`https://wa.me/?text=${encodeURIComponent(msgTemplate)}`, '_blank'); };
+            // Handlers de Cópia
+            btnCopyLink.onclick = () => { navigator.clipboard.writeText(finalLink); toastSuccess('Link copiado!'); };
+            btnCopyMsg.onclick = () => { navigator.clipboard.writeText(msgTemplate); toastSuccess('Mensagem copiada!'); };
+            btnShareWpp.onclick = () => window.open(`https://wa.me/?text=${encodeURIComponent(msgTemplate)}`, '_blank');
 
-                formCreateInvite.reset();
-            } catch (error) {
-                console.error("Erro ao gerar convite:", error);
-                alert("Erro: " + error.message);
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerText = "Gerar Link de Convite";
-            }
-        });
-    }
+            formCreateInvite.reset();
+        } catch (error) {
+            console.error(error);
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.innerText = "Gerar Link de Convite";
+        }
+    });
+}
+
+// Helper rápido para feedback visual (substitui o alert feio)
+function toastSuccess(msg) {
+    const toast = document.createElement('div');
+    toast.style = "position:fixed; bottom:30px; left:50%; transform:translateX(-50%); background:var(--safe); color:#000; padding:12px 25px; border-radius:12px; font-weight:bold; z-index:10000; animation: floatUp 0.3s ease;";
+    toast.innerText = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2500);
 }
 
 function setupModalsTeam() {
-    const btnAddMember = document.getElementById('btn-add-member');
-    const addMemberModal = document.getElementById('add-member-modal');
-    const inviteResultModal = document.getElementById('invite-result-modal');
-    const closeBtns = [document.getElementById('close-add-member'), document.getElementById('close-invite-result')];
-
     if(btnAddMember) {
         btnAddMember.addEventListener('click', () => {
             addMemberModal.classList.remove('hidden');
@@ -927,7 +1140,7 @@ function setupModalsTeam() {
         });
     }
 
-    closeBtns.forEach(btn => {
+    [closeMemberModal, closeInviteResult].forEach(btn => {
         if(btn) btn.addEventListener('click', () => {
             if(addMemberModal) { addMemberModal.style.opacity = '0'; setTimeout(() => addMemberModal.classList.add('hidden'), 300); }
             if(inviteResultModal) { inviteResultModal.style.opacity = '0'; setTimeout(() => inviteResultModal.classList.add('hidden'), 300); }
@@ -937,16 +1150,14 @@ function setupModalsTeam() {
 
 function renderTeamCard(data, displayName) {
     const photo = data.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=random&color=fff&background=333`;
-    const isOnline = true; // Placeholder para lógica futura de presença
-
     const card = `
         <div class="team-card">
             <img src="${photo}" class="team-avatar">
             <h3 style="margin:0; font-size: 1rem;">${displayName}</h3>
             <p style="color:var(--text-muted); margin:5px 0 15px 0; font-size: 0.85rem;">${data.role || 'Usuário'}</p>
             <div style="font-size:0.8rem;">
-                <span class="status-dot ${isOnline ? 'status-online' : ''}" style="background:${isOnline ? 'var(--safe)' : '#555'}"></span>
-                <span style="color: var(--text-muted);">${isOnline ? 'Cadastrado' : 'Offline'}</span>
+                <span class="status-dot status-online"></span>
+                <span style="color: var(--text-muted);">Ativo</span>
             </div>
             ${data.email ? `<small style="display:block; margin-top:10px; font-size:0.7rem; color:var(--text-muted); opacity: 0.7;">${data.email}</small>` : ''}
         </div>
@@ -954,13 +1165,12 @@ function renderTeamCard(data, displayName) {
     teamGrid.innerHTML += card;
 }
 
-// --- TABELA E GRÁFICOS (Mantidos e adaptados) ---
+// --- TABELA ---
 
 function renderGroupedTable(logs) {
     if(!tableBody) return;
     tableBody.innerHTML = '';
     
-    // Header fixo (Adicionando coluna Ações se for OWNER)
     const tableHeader = document.querySelector('.logs-table-container thead tr');
     const isOwner = (currentUserRole === 'OWNER' && window.destroyerMode === true);
 
@@ -1011,7 +1221,6 @@ function renderGroupedTable(logs) {
         let badgeClass = (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') ? 'warning' : 'bg-danger';
         let badgeHtml = `<span class="badge ${badgeClass}" style="${badgeClass === 'warning' ? 'background: rgba(255, 149, 0, 0.2); color: #FF9500;' : ''}">${summaryText}</span>`;
 
-        // --- CORREÇÃO: BOTÃO NA LINHA PRINCIPAL (SINGLE MODE) ---
         const mainSnapshotBtn = (!isMultiple && lastLog.snapshot) ? `
             <button class="btn-icon-danger btn-view-snap" style="margin-right:8px; padding: 4px; vertical-align: middle; border: 1px solid rgba(255,208,40,0.3);" data-snap="${lastLog.snapshot}" title="Ver Foto">
                 <span class="material-icons-round" style="color: var(--primary); font-size: 18px;">photo_camera</span>
@@ -1024,7 +1233,6 @@ function renderGroupedTable(logs) {
         } else if (isMultiple) {
             actionHtml = `<span class="material-icons-round" id="icon-group-${index}" style="color: var(--text-muted); transition: 0.3s;">expand_more</span>`;
         } else {
-            // Se não tem detalhes e é único, mostra só o botão se existir
              actionHtml = mainSnapshotBtn || '';
         }
 
@@ -1033,7 +1241,6 @@ function renderGroupedTable(logs) {
         let deleteBtn = '';
         if (isOwner) {
             if (!isMultiple) {
-                // Item único
                 deleteBtn = `
                 <td style="text-align: right; width: 50px;">
                     <button class="btn-icon-danger" onclick="confirmDeleteOne('${lastLog.uid}', '${lastLog.dateFolder}', '${lastLog.id}')" title="Apagar Registro">
@@ -1063,13 +1270,9 @@ function renderGroupedTable(logs) {
 
         if (isMultiple) {
             let detailsHtml = '';
-            
-            // --- LOOP INTERNO DOS DETALHES ---
             group.items.forEach(item => {
                 const iTime = item.timestamp.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                 const desc = item.details ? `<strong>${item.reason}</strong> - ${item.details}` : item.reason;
-                
-                // Botão para itens dentro do grupo
                 const snapshotBtn = item.snapshot ? `
                     <button class="btn-icon-danger btn-view-snap" style="margin-right:8px; padding: 4px;" data-snap="${item.snapshot}" title="Ver Foto">
                         <span class="material-icons-round" style="color: var(--primary); font-size: 16px;">photo_camera</span>
@@ -1106,33 +1309,26 @@ function renderGroupedTable(logs) {
     });
 }
 
-// --- LÓGICA DE DELEÇÃO (APENAS OWNER) ---
-
-// 1. Deletar UM ÚNICO log
+// --- DELEÇÃO ---
 window.confirmDeleteOne = async function(uid, dateFolder, docId) {
-    // Para a propagação do clique (evita abrir/fechar o grupo se tiver)
     if(window.event) window.event.stopPropagation();
 
-    if (!confirm("⚠️ ATENÇÃO: Deseja apagar este registro permanentemente?\nEssa ação não pode ser desfeita.")) {
-        return;
-    }
+    if (!confirm("⚠️ ATENÇÃO: Deseja apagar este registro permanentemente?")) return;
 
     try {
-        await db.collection('logs').doc(uid).collection(dateFolder).doc(docId).delete();
-        // O onSnapshot vai atualizar a tela automaticamente
-        console.log("Log deletado com sucesso.");
+        // Busca na subcoleção fixa 'logs'
+        await db.collection('logs').doc(uid).collection('logs').doc(docId).delete();
+        console.log("Log deletado.");
     } catch (error) {
         console.error("Erro ao deletar:", error);
         alert("Erro ao deletar: " + error.message);
     }
 };
 
-// 2. Lógica do Botão "Limpar Geral / Usuário"
 const btnWipe = document.getElementById('btn-wipe-logs');
 const btnWipeText = document.getElementById('btn-wipe-text');
 
 if (userFilter && btnWipeText) {
-    // Atualiza o texto do botão conforme o filtro
     userFilter.addEventListener('change', () => {
         if (userFilter.value === 'ALL') {
             btnWipeText.innerText = "Limpar TUDO (Vista)";
@@ -1148,59 +1344,27 @@ if (btnWipe) {
         if (!globalRawLogs || globalRawLogs.length === 0) return alert("Nada para deletar.");
 
         const selectedUser = userFilter.value;
-        let logsToDelete = [];
-        let confirmMsg = "";
+        let logsToDelete = (selectedUser === 'ALL') ? globalRawLogs : globalRawLogs.filter(l => l.uid === selectedUser);
+        let confirmMsg = (selectedUser === 'ALL') ? "🚨 PERIGO EXTREMO: Apagar TUDO visível?" : "⚠️ Apagar registros do usuário?";
 
-        // Define o que deletar baseado no filtro visual atual
-        if (selectedUser === 'ALL') {
-            logsToDelete = globalRawLogs; // Deleta tudo que está carregado na memória/tela
-            confirmMsg = `🚨 PERIGO EXTREMO 🚨\n\nVocê está prestes a apagar TODOS os ${logsToDelete.length} registros visíveis na tela.\n\nIsso limpará os dados de TODOS os usuários no período selecionado.\n\nTem certeza absoluta?`;
-        } else {
-            logsToDelete = globalRawLogs.filter(l => l.uid === selectedUser);
-            confirmMsg = `⚠️ Você está prestes a apagar todos os ${logsToDelete.length} registros do usuário selecionado.\n\nConfirma a exclusão?`;
-        }
-
-        if (logsToDelete.length === 0) return alert("Nenhum log encontrado para este filtro.");
+        if (logsToDelete.length === 0) return alert("Nada para deletar.");
 
         if (confirm(confirmMsg)) {
-            // Dupla verificação para Limpar Tudo
             if (selectedUser === 'ALL') {
-                const check = prompt("Digite 'DELETAR' para confirmar a exclusão em massa:");
-                if (check !== 'DELETAR') return alert("Ação cancelada.");
+                const check = prompt("Digite 'DELETAR' para confirmar:");
+                if (check !== 'DELETAR') return;
             }
 
             btnWipe.disabled = true;
             btnWipe.innerText = "Deletando...";
 
-            // Processo em Batch (Lotes de 500, limite do Firestore)
-            const total = logsToDelete.length;
-            let deleted = 0;
-            const batchSize = 400; // Margem de segurança
-            
             try {
-                // Como os logs estão espalhados em subcollections diferentes (por dia/uid), 
-                // não dá pra usar um batch único simples. Vamos fazer Promises paralelas.
-                // Para não estourar o limite de conexões, fazemos em chunks.
-                
-                for (let i = 0; i < total; i += batchSize) {
-                    const chunk = logsToDelete.slice(i, i + batchSize);
-                    const promises = chunk.map(log => {
-                        if (log.uid && log.dateFolder && log.id) {
-                            return db.collection('logs').doc(log.uid).collection(log.dateFolder).doc(log.id).delete();
-                        }
-                        return Promise.resolve();
-                    });
-                    
-                    await Promise.all(promises);
-                    deleted += chunk.length;
-                    console.log(`Deletados ${deleted}/${total}...`);
+                for (const log of logsToDelete) {
+                    await db.collection('logs').doc(log.uid).collection('logs').doc(log.id).delete();
                 }
-
-                alert("Limpeza concluída com sucesso.");
-
+                alert("Limpeza concluída.");
             } catch (error) {
-                console.error("Erro na deleção em massa:", error);
-                alert("Ocorreu um erro durante a deleção. Atualize a página.");
+                console.error(error);
             } finally {
                 btnWipe.disabled = false;
                 btnWipe.innerHTML = '<span class="material-icons-round" style="font-size: 18px; vertical-align: middle;">delete_forever</span> <span id="btn-wipe-text">Limpar Vista</span>';
@@ -1289,197 +1453,63 @@ function animateValue(obj, end) {
     window.requestAnimationFrame(step);
 }
 
-// --- CONVITES (Mantido igual) ---
-if(btnAddMember) {
-    btnAddMember.style.display = 'flex'; 
-    btnAddMember.addEventListener('click', () => {
-        if(addMemberModal) {
-            addMemberModal.classList.remove('hidden');
-            setTimeout(() => addMemberModal.style.opacity = '1', 10);
-        }
-    });
-}
-[closeMemberModal, closeInviteResult].forEach(btn => {
-    if(btn) btn.addEventListener('click', () => {
-        if(addMemberModal) { addMemberModal.style.opacity = '0'; setTimeout(() => addMemberModal.classList.add('hidden'), 300); }
-        if(inviteResultModal) { inviteResultModal.style.opacity = '0'; setTimeout(() => inviteResultModal.classList.add('hidden'), 300); }
-    });
-});
-
-if(formCreateInvite) {
-    formCreateInvite.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const role = document.getElementById('invite-role').value;
-        const uses = parseInt(document.getElementById('invite-uses').value);
-        const days = parseInt(document.getElementById('invite-days').value);
-        const submitBtn = formCreateInvite.querySelector('button[type="submit"]');
-
-        try {
-            submitBtn.disabled = true;
-            submitBtn.innerText = "Gerando...";
-            const token = Math.random().toString(36).substring(2, 10) + Math.random().toString(36).substring(2, 10);
-            const expiresAt = new Date();
-            expiresAt.setDate(expiresAt.getDate() + days);
-
-            await db.collection('invites').doc(token).set({
-                token: token,
-                role: role,
-                maxUses: uses,
-                usesLeft: uses,
-                expiresAt: expiresAt,
-                createdBy: auth.currentUser.uid,
-                createdAt: new Date(),
-                active: true
-            });
-
-            const baseUrl = window.location.href.replace('admin.html', 'index.html');
-            const finalLink = `${baseUrl.split('?')[0]}?convite=${token}`;
-            const msgTemplate = `💼 *Convite Oficial - SunDrowsy*\n\nVocê foi convidado a integrar a plataforma *SunDrowsy* como *${role}*.\n\n📅 Expira em *${days} dia(s)*\n🔢 Válido para *${uses} uso(s)*\n\n*Clique no link abaixo para criar sua conta:*\n${finalLink}\n\n🛡️ *SunDrowsy* — Eficiência e segurança contra a fadiga.`;
-
-            resultLinkInput.value = finalLink;
-            resultMsgDiv.innerText = msgTemplate;
-
-            addMemberModal.style.opacity = '0';
-            setTimeout(() => addMemberModal.classList.add('hidden'), 300);
-            inviteResultModal.classList.remove('hidden');
-            setTimeout(() => inviteResultModal.style.opacity = '1', 300);
-
-            btnCopyLink.onclick = () => { navigator.clipboard.writeText(finalLink); alert('Link copiado!'); };
-            btnCopyMsg.onclick = () => { navigator.clipboard.writeText(msgTemplate); alert('Mensagem copiada!'); };
-            btnShareWpp.onclick = () => { window.open(`https://wa.me/?text=${encodeURIComponent(msgTemplate)}`, '_blank'); };
-
-            formCreateInvite.reset();
-        } catch (error) {
-            console.error("Erro ao gerar convite:", error);
-            alert("Erro: " + error.message);
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.innerText = "Gerar Link de Convite";
-        }
-    });
-}
-
-// --- LÓGICA DE EXPORTAÇÃO CSV ---
-
+// --- EXPORTAÇÃO CSV ---
 const btnExportCsv = document.getElementById('btn-export-csv');
-
 if (btnExportCsv) {
-    btnExportCsv.addEventListener('click', () => {
-        exportLogsToCSV();
-    });
+    btnExportCsv.addEventListener('click', exportLogsToCSV);
 }
 
 function exportLogsToCSV() {
-    // 1. Verifica se há dados
-    if (!globalRawLogs || globalRawLogs.length === 0) {
-        alert("Não há dados para exportar.");
-        return;
-    }
-
-    // 2. Aplica o filtro atual da tela (O mesmo do dropdown)
+    if (!globalRawLogs || globalRawLogs.length === 0) return alert("Sem dados.");
     const selectedUser = userFilter.value;
-    let dataToExport = [];
-
-    if (selectedUser === 'ALL') {
-        dataToExport = [...globalRawLogs];
-    } else {
-        dataToExport = globalRawLogs.filter(log => log.uid === selectedUser);
-    }
-
-    // Ordena por data (mais recente primeiro)
+    let dataToExport = (selectedUser === 'ALL') ? [...globalRawLogs] : globalRawLogs.filter(log => log.uid === selectedUser);
     dataToExport.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 
-    // 3. Cabeçalho do CSV
     const headers = ['DATA', 'HORA', 'NOME', 'CARGO', 'TIPO EVENTO', 'MOTIVO/DESCRIÇÃO', 'DETALHES EXTRAS'];
-    
-    // 4. Processa as linhas
     const csvRows = dataToExport.map(log => {
         const dateObj = log.timestamp.toDate();
-        const dateStr = dateObj.toLocaleDateString('pt-BR');
-        const timeStr = dateObj.toLocaleTimeString('pt-BR');
-        
-        // Trata campos de texto para evitar quebras no CSV (aspas e vírgulas)
-        const clean = (text) => {
-            if (!text) return "";
-            return `"${text.toString().replace(/"/g, '""')}"`; // Escapa aspas duplas
-        };
-
-        const userName = clean(log.userName || 'Desconhecido');
-        const role = clean(log.role || '--');
-        const type = clean(log.type);
-        const reason = clean(log.reason || log.description || ''); // Pega reason ou description (almoço)
-        
-        // Detalhes extras (como nível de fadiga)
-        let details = "";
-        if (log.fatigue_level) details = `Nível: ${log.fatigue_level}`;
-        details = clean(details);
-
-        return [dateStr, timeStr, userName, role, type, reason, details].join(',');
+        const clean = (text) => text ? `"${text.toString().replace(/"/g, '""')}"` : "";
+        return [
+            dateObj.toLocaleDateString('pt-BR'),
+            dateObj.toLocaleTimeString('pt-BR'),
+            clean(log.userName || 'Desconhecido'),
+            clean(log.role || '--'),
+            clean(log.type),
+            clean(log.reason || log.description || ''),
+            clean(log.fatigue_level ? `Nível: ${log.fatigue_level}` : "")
+        ].join(',');
     });
 
-    // 5. Monta o conteúdo final com BOM para UTF-8 (Acentos funcionarem no Excel)
     const csvContent = '\uFEFF' + [headers.join(','), ...csvRows].join('\n');
-
-    // 6. Cria o arquivo e dispara o download
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    
-    // Nome do arquivo dinâmico
-    const today = new Date().toLocaleDateString('pt-BR').replace(/\//g, '-');
-    const filterSuffix = selectedUser === 'ALL' ? 'Geral' : 'Filtrado';
-    link.setAttribute('href', url);
-    link.setAttribute('download', `SunDrowsy_Relatorio_${filterSuffix}_${today}.csv`);
-    
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `SunDrowsy_Relatorio_${new Date().toLocaleDateString('pt-BR')}.csv`;
     link.click();
-    document.body.removeChild(link);
 }
 
-// --- VISUALIZADOR DE SNAPSHOTS (MODO SEGURO) ---
-
-// Este listener global captura cliques em qualquer botão de foto gerado dinamicamente
+// Snapshots Viewer
 document.addEventListener('click', function(e) {
     const btn = e.target.closest('.btn-view-snap');
     if (btn) {
         const imageData = btn.getAttribute('data-snap');
-        if (imageData) {
-            // Abre uma nova janela em branco e escreve o HTML da imagem dentro
-            // Isso contorna bloqueios de segurança de abrir Data URLs diretamente
-            const win = window.open("");
-            if (win) {
-                win.document.write(`
-                    <html>
-                    <head>
-                        <title>Snapshot de Segurança</title>
-                        <style>body { margin: 0; background: #000; display: flex; justify-content: center; align-items: center; height: 100vh; }</style>
-                    </head>
-                    <body>
-                        <img src="${imageData}" style="max-width: 100%; max-height: 100%; border: 2px solid #FFD028; box-shadow: 0 0 20px rgba(255, 208, 40, 0.2);">
-                    </body>
-                    </html>
-                `);
-            }
-        }
+        const win = window.open("");
+        win.document.write(`<html><body style="margin:0;background:#000;display:flex;justify-content:center;align-items:center;height:100vh;"><img src="${imageData}" style="max-width:100%;max-height:100%;border:2px solid #FFD028;"></body></html>`);
     }
 });
 
-// --- FECHAMENTO GLOBAL DE MODAIS (ESC & CLIQUE FORA) ---
-
-// 1. Fechar com tecla ESC
+// ESC & Outside Modals
 document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
-        const activeModals = document.querySelectorAll('.modal:not(.hidden)');
-        activeModals.forEach(modal => {
-            modal.style.opacity = '0'; // Animação de saída
+        document.querySelectorAll('.modal:not(.hidden)').forEach(modal => {
+            modal.style.opacity = '0';
             setTimeout(() => modal.classList.add('hidden'), 300);
         });
     }
 });
 
-// 2. Fechar clicando no fundo (Backdrop)
 window.addEventListener('click', (e) => {
-    // Se o alvo do clique tiver a classe 'modal' (significa que clicou no fundo escuro e não no conteúdo)
     if (e.target.classList.contains('modal')) {
         e.target.style.opacity = '0';
         setTimeout(() => e.target.classList.add('hidden'), 300);

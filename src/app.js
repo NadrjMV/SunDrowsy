@@ -242,6 +242,7 @@ auth.onAuthStateChanged(async (user) => {
 
                 // Agora o Firestore vai aceitar, pois 'inviteUsed' bate com um ID na coleção 'invites'
                 await userRef.set(userData);
+                populateUserFilter();
                 await inviteRef.update({ usesLeft: firebase.firestore.FieldValue.increment(-1) });
                 sessionStorage.removeItem('sd_invite_token');
             }
@@ -647,27 +648,21 @@ btnStartCalib.addEventListener('click', async () => {
     btnStartCalib.disabled = true;
 
     // Define se é a primeira vez ou recalibração (Speed Run)
+    btnStartCalib.disabled = true;
+
     const isFirstTime = !hasPerformedCalibration;
 
-    // Tempos Dinâmicos (Primeira vez vs Recalibração)
-    // Intro: De 9s cai para 2.5s (Só pra preparar)
+    // Tempos Dinâmicos
     const t_intro = isFirstTime ? 9000 : 2500;
-    // Passos: Reduzidos quase pela metade
     const t_open = isFirstTime ? 7000 : 4000;
     const t_close = isFirstTime ? 9000 : 5000;
     const t_yawn = isFirstTime ? 8200 : 5000;
     const t_final = isFirstTime ? 4500 : 2000;
 
-    // 2. SÓ TOCA O ÁUDIO SE FOR A PRIMEIRA VEZ
-    if (isFirstTime) {
-        const fullAudio = new Audio('assets/calibracao.mp3');
-        fullAudio.volume = 1.0;
-        fullAudio.play().catch(e => {
-            console.error("Erro ao tocar áudio completo:", e);
-        });
-    } else {
-        console.log("⏩ Modo Recalibração: Áudio pulado.");
-    }
+    // Agr toca o áudio toda vez. 
+    const fullAudio = new Audio('assets/calibracao.mp3');
+    fullAudio.volume = 1.0;
+    fullAudio.play().catch(e => console.error("Erro ao tocar áudio:", e));
 
     // Variáveis de captura
     let avgOpenEAR = 0, avgClosedEAR = 0, avgYawnMAR = 0, avgHeadRatio = 0;
@@ -733,6 +728,23 @@ btnStartCalib.addEventListener('click', async () => {
     if(detector) detector.updateUI("SISTEMA ATIVO");
 });
 
+function populateUserFilter() {
+    if(!userFilter) return;
+
+    db.collection('users').orderBy('displayName').onSnapshot(snapshot => {
+        // Mantém a opção "Todos"
+        userFilter.innerHTML = '<option value="ALL">Todos os Usuários</option>';
+        
+        snapshot.forEach(doc => {
+            const user = doc.data();
+            const option = document.createElement('option');
+            option.value = doc.id; // UID
+            option.textContent = user.displayName || user.email;
+            userFilter.appendChild(option);
+        });
+    });
+}
+
 // --- LÓGICA DO ALMOÇO (1x POR DIA + LOGS + LOCK SCREEN) ---
 const btnLunch = document.getElementById('btn-fab-lunch');
 const lunchModal = document.getElementById('lunch-modal');
@@ -755,12 +767,15 @@ function logLunchAction(actionType) {
     
     db.collection('logs')
         .doc(auth.currentUser.uid)
-        .collection(dateFolder)
+        .collection('logs')
         .add({
+            uid: auth.currentUser.uid,
+            userName: auth.currentUser.displayName || 'Usuário',
             timestamp: now,
             type: actionType, // "LUNCH_START" ou "LUNCH_END"
             description: actionType === "LUNCH_START" ? "Início de Pausa Alimentar" : "Retorno de Pausa Alimentar",
-            role: detector ? detector.config.role : 'DESCONHECIDO'
+            role: detector ? detector.config.role : 'DESCONHECIDO',
+            dateStr: `${year}-${month}-${day}`
         })
         .then(() => console.log(`📝 Log de Almoço (${actionType}) salvo.`))
         .catch(e => console.error("❌ Erro ao salvar log:", e));

@@ -80,31 +80,31 @@ export class DrowsinessDetector {
     }
 
     setCalibration(earClosed, earOpen, marOpen, headRatioNormal) {
-    const newEAR = earClosed + (earOpen - earClosed) * 0.35;
-    const newMAR = Math.max(marOpen * 0.75, 0.55);
-    const newHead = headRatioNormal * 0.88; 
+        const newEAR = earClosed + (earOpen - earClosed) * 0.35;
+        const newMAR = Math.max(marOpen * 0.75, 0.55);
+        const newHead = headRatioNormal * 0.88; 
 
-    this.config.EAR_THRESHOLD = newEAR;
-    this.config.MAR_THRESHOLD = newMAR;
-    this.config.HEAD_RATIO_THRESHOLD = newHead;
-    
-    this.state.isCalibrated = true;
-    this.updateUI("SISTEMA CALIBRADO");
+        this.config.EAR_THRESHOLD = newEAR;
+        this.config.MAR_THRESHOLD = newMAR;
+        this.config.HEAD_RATIO_THRESHOLD = newHead;
+        
+        this.state.isCalibrated = true;
+        this.updateUI("SISTEMA CALIBRADO");
 
-    // Persistência imediata no perfil do usuário logado
-    if (auth.currentUser) {
-        db.collection('users').doc(auth.currentUser.uid).set({
-            calibration: { 
-                EAR_THRESHOLD: newEAR, 
-                MAR_THRESHOLD: newMAR,
-                HEAD_RATIO_THRESHOLD: newHead,
-                updatedAt: new Date()
-            }
-        }, { merge: true })
-        .then(() => console.log("✅ Calibração salva no Firestore para:", auth.currentUser.uid))
-        .catch(e => console.error("❌ Erro ao salvar calibração:", e));
+        // Persistência imediata no perfil do usuário logado
+        if (auth.currentUser) {
+            db.collection('users').doc(auth.currentUser.uid).set({
+                calibration: { 
+                    EAR_THRESHOLD: newEAR, 
+                    MAR_THRESHOLD: newMAR,
+                    HEAD_RATIO_THRESHOLD: newHead,
+                    updatedAt: new Date()
+                }
+            }, { merge: true })
+            .then(() => console.log("✅ Calibração salva no Firestore para:", auth.currentUser.uid))
+            .catch(e => console.error("❌ Erro ao salvar calibração:", e));
+        }
     }
-}
 
     // --- LÓGICA DE CABEÇA ---
     processHeadTilt(currentRatio, pitchRatio) {
@@ -127,7 +127,6 @@ export class DrowsinessDetector {
             // ESTÁGIO 1: Aviso Rápido
             const duration = Date.now() - this.state.headDownSince;
 
-            // ESTÁGIO 1: Aviso Rápido
             if (duration >= this.config.HEAD_DOWN_TIME_MS && duration < this.config.HEAD_CRITICAL_TIME_MS) {
                 if (!this.state.hasLoggedHeadDown) {
                     this.triggerAlarm(`ATENÇÃO: CABEÇA BAIXA`);
@@ -160,7 +159,6 @@ export class DrowsinessDetector {
         const now = Date.now();
         const cfg = this.config;
 
-        // --- CORREÇÃO DE LAG (ANTI-TRAVAMENTO) ---
         if (now - this.lastProcessTime > 2000) {
             console.warn("⚠️ Lag extremo detectado (>2s). Resetando timers por segurança.");
             this.state.eyesClosedSince = null;
@@ -170,7 +168,6 @@ export class DrowsinessDetector {
             return; 
         }
         this.lastProcessTime = now;
-        // -----------------------------------------
 
         // Reset janela
         if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
@@ -193,9 +190,6 @@ export class DrowsinessDetector {
             this.state.recoveryFrames = 0;
         }
 
-        // Bocejo
-        // FIX: Adicionada verificação !this.state.isHeadDown
-        // Se a cabeça estiver baixa, ignora a boca pra evitar erro de perspectiva 2D
         if (!isEffectivelyClosed && !this.state.isHeadDown) {
             if (mar > cfg.MAR_THRESHOLD) {
                 if (this.state.mouthOpenSince === null) this.state.mouthOpenSince = now;
@@ -215,13 +209,11 @@ export class DrowsinessDetector {
             if (this.state.eyesClosedSince === null) this.state.eyesClosedSince = now;
             const timeClosed = now - this.state.eyesClosedSince;
             
-            // Nível 1: Sono Profundo
             if (timeClosed >= cfg.CRITICAL_TIME_MS) {
                 this.triggerAlarm(`PERIGO: SONO PROFUNDO (${(timeClosed/1000).toFixed(1)}s)`);
                 return;
             } 
             
-            // Nível 2: Microssono
             if (this.state.longBlinksCount >= 2 && timeClosed >= cfg.MICROSLEEP_TIME_MS) {
                 this.triggerMicrosleepEvent(timeClosed);
                 return;
@@ -279,7 +271,6 @@ export class DrowsinessDetector {
         }
     }
 
-    // --- MICROSSONO (SOM IMEDIATO, LOG AGRUPADO) ---
     triggerMicrosleepEvent(duration) {
         if (!this.state.isAlarmActive) {
             this.state.isAlarmActive = true;
@@ -288,8 +279,6 @@ export class DrowsinessDetector {
             this.onStatusChange({ alarm: true, text: "MICROSSONO" });
         }
 
-        // Tira a foto AGORA (no momento do flagrante)
-        // Se já tiver uma foto salva no buffer, não tira outra pra não pesar
         if (!this.microsleepBuffer.snapshot && auth.currentUser && window.captureSnapshot) {
             window.captureSnapshot().then(snap => {
                 this.microsleepBuffer.snapshot = snap;
@@ -306,27 +295,21 @@ export class DrowsinessDetector {
             this.microsleepBuffer.accumulatedTime = duration;
         }
         
-        // Espera 5s pra ver se acumula mais tempo, depois salva
         this.microsleepBuffer.timer = setTimeout(() => {
             const totalSec = (this.microsleepBuffer.accumulatedTime / 1000).toFixed(1);
             const reason = `MICROSSONO DETECTADO (${totalSec}s)`;
 
-            // Passa a foto que tiramos lá em cima
             this.logToFirebaseSmart(reason, this.microsleepBuffer.snapshot);
             
-            // Reseta o buffer
             this.microsleepBuffer.active = false;
             this.microsleepBuffer.accumulatedTime = 0;
-            this.microsleepBuffer.snapshot = null; // Limpa foto
+            this.microsleepBuffer.snapshot = null; 
             this.microsleepBuffer.timer = null;
         }, 5000); 
     }
 
-    // Função Padrão de Alarme (Logs imediatos COM FOTO)
     async triggerAlarm(reason, playSound = true) {
         const now = Date.now();
-        
-        // Anti-spam de log (3s)
         if (now - this.state.lastLogTimestamp < 3000) return; 
 
         console.warn("🚨 ALARME DISPARADO:", reason);
@@ -340,11 +323,8 @@ export class DrowsinessDetector {
         this.onStatusChange({ alarm: true, text: reason });
         this.updateUI(reason); 
         
-        // --- LÓGICA DE SNAPSHOT BASE64 ---
         if (auth.currentUser && window.captureSnapshot) {
-            // Captura o frame atual em Base64
             window.captureSnapshot().then(base64Image => {
-                // Passa a string gigante direto para o log
                 this.logToFirebaseSmart(reason, base64Image);
             });
         } else {
@@ -352,31 +332,26 @@ export class DrowsinessDetector {
         }
     }
 
-    // --- ATUALIZAÇÃO DO LOG (ÚNICA VERSÃO - A CORRETA) ---
     logToFirebaseSmart(reason, snapshotData = null) { 
         if(!auth.currentUser) return;
 
-        setTimeout(() => {
-            const date = new Date();
-            const folder = `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-            
-            const payload = {
+        const date = new Date();
+        // Alterado para subcoleção fixa 'logs' para o Collection Group funcionar em 7/30 dias
+        db.collection('logs')
+            .doc(auth.currentUser.uid)
+            .collection('logs') 
+            .add({
                 timestamp: date,
                 type: "ALARM",
                 reason: reason,
                 role: this.config.role,
-                fatigue_level: `P:${this.state.longBlinksCount} | B:${this.state.yawnCount}`,
-                userName: auth.currentUser.displayName || 'Usuário',
+                userName: auth.currentUser.displayName,
                 uid: auth.currentUser.uid,
-                snapshot: snapshotData // <--- AQUI ESTÁ A FOTO SENDO SALVA
-            };
-
-            db.collection('logs')
-                .doc(auth.currentUser.uid)
-                .collection(folder)
-                .add(payload)
-                .catch(e => console.error("Erro Log Firebase:", e));
-        }, 0);
+                snapshot: snapshotData,
+                fatigue_level: `P:${this.state.longBlinksCount} | B:${this.state.yawnCount}`,
+                dateStr: `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`
+            })
+            .catch(e => console.error("Erro Log Firebase:", e));
     }
 
     stopAlarm() {
