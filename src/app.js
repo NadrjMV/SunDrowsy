@@ -241,9 +241,22 @@ auth.onAuthStateChanged(async (user) => {
                 };
 
                 // Agora o Firestore vai aceitar, pois 'inviteUsed' bate com um ID na coleção 'invites'
-                await userRef.set(userData);
-                populateUserFilter();
-                await inviteRef.update({ usesLeft: firebase.firestore.FieldValue.increment(-1) });
+                // ✅ Consome o convite + cria o perfil em transação (atômico e com rules seguras)
+                await db.runTransaction(async (tx) => {
+                    const invSnap = await tx.get(inviteRef);
+                    if (!invSnap.exists) throw new Error("⛔ Convite inválido.");
+                    const inv = invSnap.data() || {};
+                    if (!inv.active) throw new Error("⛔ Convite inativo.");
+                    if ((inv.usesLeft || 0) <= 0) throw new Error("⛔ Convite esgotado.");
+
+                    // Decrementa 1 uso
+                    tx.update(inviteRef, { usesLeft: (inv.usesLeft || 0) - 1 });
+
+                    // Cria o usuário
+                    tx.set(userRef, userData, { merge: false });
+                });
+
+                // Limpa token local depois de consumir
                 sessionStorage.removeItem('sd_invite_token');
             }
 
@@ -767,15 +780,12 @@ function logLunchAction(actionType) {
     
     db.collection('logs')
         .doc(auth.currentUser.uid)
-        .collection('logs')
+        .collection(dateFolder)
         .add({
-            uid: auth.currentUser.uid,
-            userName: auth.currentUser.displayName || 'Usuário',
             timestamp: now,
             type: actionType, // "LUNCH_START" ou "LUNCH_END"
             description: actionType === "LUNCH_START" ? "Início de Pausa Alimentar" : "Retorno de Pausa Alimentar",
-            role: detector ? detector.config.role : 'DESCONHECIDO',
-            dateStr: `${year}-${month}-${day}`
+            role: detector ? detector.config.role : 'DESCONHECIDO'
         })
         .then(() => console.log(`📝 Log de Almoço (${actionType}) salvo.`))
         .catch(e => console.error("❌ Erro ao salvar log:", e));
