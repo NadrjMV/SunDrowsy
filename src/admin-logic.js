@@ -1217,6 +1217,11 @@ function renderGroupedTable(logs) {
         const date = lastLog.timestamp.toDate();
         const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
         
+        // Busca o nome real no objeto do log ou na lista local de usuários
+        const userData = localUsersList.find(u => u.uid === lastLog.uid);
+        const finalDisplayName = userData ? userData.displayName : (lastLog.userName || 'Usuário Desconhecido');
+        const finalRole = userData ? userData.role : (lastLog.role || 'Vigia');
+
         let summaryText = isMultiple ? `<span style="color: #fff; font-weight: bold;">${group.items.length} Registros</span>` : (lastLog.reason || "Evento");
         let badgeClass = (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') ? 'warning' : 'bg-danger';
         let badgeHtml = `<span class="badge ${badgeClass}" style="${badgeClass === 'warning' ? 'background: rgba(255, 149, 0, 0.2); color: #FF9500;' : ''}">${summaryText}</span>`;
@@ -1257,8 +1262,8 @@ function renderGroupedTable(logs) {
                 <td style="font-family: monospace; color: var(--primary);">${time}</td>
                 <td>
                     <div style="display: flex; flex-direction: column;">
-                        <span style="font-weight: 600;">${group.userName}</span>
-                        <span style="font-size: 0.75rem; color: var(--text-muted);">${group.role}</span>
+                        <span style="font-weight: 600;">${finalDisplayName}</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">${finalRole}</span>
                     </div>
                 </td>
                 <td>${badgeHtml}</td>
