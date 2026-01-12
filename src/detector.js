@@ -4,7 +4,7 @@ import { db, auth } from './firebase-config.js';
 const FACTORY_CONFIG = {
     // Tempos
     CRITICAL_TIME_MS: 20000,        // 20s (Sono Profundo)
-    MICROSLEEP_TIME_MS: 10000,       // 10s olho fechado (cochilo rápido)
+    MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
     HEAD_DOWN_TIME_MS: 25000,      // 20s (Cabeça baixa)
     HEAD_CRITICAL_TIME_MS: 120000,   // 2min (Crítico)
     
@@ -19,7 +19,9 @@ const FACTORY_CONFIG = {
     HEAD_RATIO_THRESHOLD: 0.85,
     
     REQUIRED_LONG_BLINKS: 5,        
-    REQUIRED_YAWNS: 5,              
+    REQUIRED_YAWNS: 5,   
+    
+    VERSION: "3.1.5",
     
     role: 'VIGIA'
 };
