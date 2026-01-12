@@ -3,7 +3,7 @@ import { db, auth } from './firebase-config.js';
 // --- CONFIGURAÇÕES PADRÃO ---
 const FACTORY_CONFIG = {
     // Tempos
-    CRITICAL_TIME_MS: 20000,        // 20s (Sono Profundo)
+    CRITICAL_TIME_MS: 15000,        // 20s (Sono Profundo) - 15s temporário
     MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
     HEAD_DOWN_TIME_MS: 25000,      // 20s (Cabeça baixa)
     HEAD_CRITICAL_TIME_MS: 120000,   // 2min (Crítico)
