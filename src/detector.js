@@ -2,11 +2,10 @@ import { db, auth } from './firebase-config.js';
 
 // --- CONFIGURAÇÕES PADRÃO ---
 const FACTORY_CONFIG = {
-    // Tempos
-    CRITICAL_TIME_MS: 15000,        // 20s (Sono Profundo) - 15s temporário
-    MICROSLEEP_TIME_MS: 5000,       // 5s olho fechado (cochilo rápido)
-    HEAD_DOWN_TIME_MS: 25000,      // 20s (Cabeça baixa)
-    HEAD_CRITICAL_TIME_MS: 120000,   // 2min (Crítico)
+    CRITICAL_TIME_MS: 15000,
+    MICROSLEEP_TIME_MS: 5000,       
+    HEAD_DOWN_TIME_MS: 25000,      
+    HEAD_CRITICAL_TIME_MS: 120000,   
     
     LONG_BLINK_TIME_MS: 1300,
     BLINK_WINDOW_MS: 30000,
@@ -15,7 +14,7 @@ const FACTORY_CONFIG = {
     YAWN_RESET_TIME: 5000,
 
     EAR_THRESHOLD: 0.22,
-    MAR_THRESHOLD: 0.80, // Aumentado para evitar falsos positivos pré-calibração
+    MAR_THRESHOLD: 0.80, 
     HEAD_RATIO_THRESHOLD: 0.85,
     
     REQUIRED_LONG_BLINKS: 5,        
@@ -35,46 +34,34 @@ export class DrowsinessDetector {
 
         this.state = {
             isCalibrated: false,
-            
-            // Olhos
             eyesClosedSince: null,
             longBlinksCount: 0,
             longBlinksWindowStart: Date.now(),
             recoveryFrames: 0, 
 
-            // Bocejo
             isYawning: false,
             mouthOpenSince: null,
             lastYawnTime: 0,
             yawnCount: 0,
 
-            // Cabeça (Head Pose)
             headDownSince: null,
             isHeadDown: false,
-            hasLoggedHeadDown: false,      // Log do estagio 1 (1s)
-            hasLoggedHeadCritical: false,  // Log do estagio 2 (20s)
+            hasLoggedHeadDown: false,      
+            hasLoggedHeadCritical: false,  
             headRecoveryFrames: 0, 
 
-            // Sistema
             isAlarmActive: false,
             monitoring: false,
             justTriggeredLongBlink: false,
             hasLoggedFatigue: false,
             lastLogTimestamp: 0, 
 
-            // Cache UI
             lastUiBlink: -1,
             lastUiYawn: -1,
             lastUiText: ""
         };
 
-        // Buffer para Microssono (Agrupamento Centralizado)
-        this.microsleepBuffer = {
-            active: false,
-            accumulatedTime: 0, 
-            timer: null,
-            snapshot: null // <--- Guarda a foto temporariamente
-        };
+        // Microssono desativado: Removido buffer de memória e timers
     }
 
     setRole(newRole) {
@@ -93,7 +80,6 @@ export class DrowsinessDetector {
         this.state.isCalibrated = true;
         this.updateUI("SISTEMA CALIBRADO");
 
-        // Persistência imediata no perfil do usuário logado
         if (auth.currentUser) {
             db.collection('users').doc(auth.currentUser.uid).set({
                 calibration: { 
@@ -103,30 +89,24 @@ export class DrowsinessDetector {
                     updatedAt: new Date()
                 }
             }, { merge: true })
-            .then(() => console.log("✅ Calibração salva no Firestore para:", auth.currentUser.uid))
+            .then(() => console.log("✅ Calibração salva no Firestore"))
             .catch(e => console.error("❌ Erro ao salvar calibração:", e));
         }
     }
 
-    // --- LÓGICA DE CABEÇA ---
     processHeadTilt(currentRatio, pitchRatio) {
         if (!this.state.monitoring || !this.state.isCalibrated) return;
 
         const isRatioLow = currentRatio < this.config.HEAD_RATIO_THRESHOLD;
         const isLookingUp = pitchRatio > 2.0; 
         
-        // FIX: Define estado físico imediato para bloquear bocejos falsos
         const isPhysicallyHeadDown = isRatioLow && !isLookingUp;
         this.state.isHeadDown = isPhysicallyHeadDown;
         
         if (isPhysicallyHeadDown) {
             this.state.headRecoveryFrames = 0;
+            if (this.state.headDownSince === null) this.state.headDownSince = Date.now();
 
-            if (this.state.headDownSince === null) {
-                this.state.headDownSince = Date.now();
-            }
-
-            // ESTÁGIO 1: Aviso Rápido
             const duration = Date.now() - this.state.headDownSince;
 
             if (duration >= this.config.HEAD_DOWN_TIME_MS && duration < this.config.HEAD_CRITICAL_TIME_MS) {
@@ -136,17 +116,14 @@ export class DrowsinessDetector {
                 }
             }
             
-            // ESTÁGIO 2: Crítico
             if (duration >= this.config.HEAD_CRITICAL_TIME_MS) {
                 if (!this.state.hasLoggedHeadCritical) {
                     this.triggerAlarm(`PERIGO: CABEÇA BAIXA (+20s)`); 
                     this.state.hasLoggedHeadCritical = true;
                 }
             }
-
         } else {
             this.state.headRecoveryFrames++;
-
             if (this.state.headRecoveryFrames > 5) {
                 this.state.headDownSince = null;
                 this.state.hasLoggedHeadDown = false;
@@ -162,7 +139,6 @@ export class DrowsinessDetector {
         const cfg = this.config;
 
         if (now - this.lastProcessTime > 2000) {
-            console.warn("⚠️ Lag extremo detectado (>2s). Resetando timers por segurança.");
             this.state.eyesClosedSince = null;
             this.state.mouthOpenSince = null;
             this.state.headDownSince = null;
@@ -171,7 +147,6 @@ export class DrowsinessDetector {
         }
         this.lastProcessTime = now;
 
-        // Reset janela
         if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
             this.state.longBlinksCount = 0;
             this.state.yawnCount = 0; 
@@ -216,10 +191,8 @@ export class DrowsinessDetector {
                 return;
             } 
             
-            if (this.state.longBlinksCount >= 2 && timeClosed >= cfg.MICROSLEEP_TIME_MS) {
-                this.triggerMicrosleepEvent(timeClosed);
-                return;
-            }
+            // REMOVIDO: triggerMicrosleepEvent
+            // O sistema ignora o alerta de 5s, mas continua contando como piscada longa se fechar e abrir.
 
             if (timeClosed >= cfg.LONG_BLINK_TIME_MS && !this.state.justTriggeredLongBlink) {
                 this.triggerLongBlink();
@@ -273,48 +246,12 @@ export class DrowsinessDetector {
         }
     }
 
-    triggerMicrosleepEvent(duration) {
-        if (!this.state.isAlarmActive) {
-            this.state.isAlarmActive = true;
-            this.audioManager.playAlert();
-            this.updateUI("MICROSSONO DETECTADO");
-            this.onStatusChange({ alarm: true, text: "MICROSSONO" });
-        }
-
-        if (!this.microsleepBuffer.snapshot && auth.currentUser && window.captureSnapshot) {
-            window.captureSnapshot().then(snap => {
-                this.microsleepBuffer.snapshot = snap;
-            });
-        }
-
-        if (this.microsleepBuffer.timer) {
-            clearTimeout(this.microsleepBuffer.timer);
-        }
-
-        this.microsleepBuffer.active = true;
-        
-        if (duration > this.microsleepBuffer.accumulatedTime) {
-            this.microsleepBuffer.accumulatedTime = duration;
-        }
-        
-        this.microsleepBuffer.timer = setTimeout(() => {
-            const totalSec = (this.microsleepBuffer.accumulatedTime / 1000).toFixed(1);
-            const reason = `MICROSSONO DETECTADO (${totalSec}s)`;
-
-            this.logToFirebaseSmart(reason, this.microsleepBuffer.snapshot);
-            
-            this.microsleepBuffer.active = false;
-            this.microsleepBuffer.accumulatedTime = 0;
-            this.microsleepBuffer.snapshot = null; 
-            this.microsleepBuffer.timer = null;
-        }, 5000); 
-    }
+    // REMOVIDO: triggerMicrosleepEvent (Função apagada para economizar recursos)
 
     async triggerAlarm(reason, playSound = true) {
         const now = Date.now();
         if (now - this.state.lastLogTimestamp < 3000) return; 
 
-        console.warn("🚨 ALARME DISPARADO:", reason);
         this.state.lastLogTimestamp = now;
 
         if (playSound) {
@@ -336,9 +273,7 @@ export class DrowsinessDetector {
 
     logToFirebaseSmart(reason, snapshotData = null) { 
         if(!auth.currentUser) return;
-
         const date = new Date();
-        // Alterado para subcoleção fixa 'logs' para o Collection Group funcionar em 7/30 dias
         db.collection('logs')
             .doc(auth.currentUser.uid)
             .collection('logs') 
@@ -368,10 +303,8 @@ export class DrowsinessDetector {
     updateUI(text) {
         if (this.state.lastUiText === text) return; 
         this.state.lastUiText = text;
-
         const el = document.getElementById('system-status');
         if(el) el.innerText = text;
-        
         const overlay = document.getElementById('danger-alert');
         if(overlay) {
             if (this.state.isAlarmActive) {
