@@ -13,6 +13,8 @@ let currentHeadRatio = 0;
 let isCalibrating = false;
 let isCalibrationUnlocked = false;
 
+let lunchTimerInterval = null;
+
 // senha admin
 const ADMIN_PASS_REQUIRED = "1234";
 
@@ -946,33 +948,53 @@ function toggleLunchState(active) {
     detector.state.monitoring = !active;
 
     if (active) {
-        // --- INICIANDO ALMOÇO ---
+        // --- INÍCIO DO ALMOÇO ---
+        detector.state.lunchStartedAt = Date.now();
         detector.stopAlarm();
         detector.updateUI("PAUSA: ALMOÇO 🍔");
         
         appContainer.classList.add('lunch-mode');
-        
-        if(btnLunch) btnLunch.classList.add('active');
-        localStorage.setItem(LUNCH_KEY, new Date().toDateString());
-        
         logLunchAction("LUNCH_START");
-        console.log("🍔 Almoço INICIADO. Tela travada.");
+
+        // Inicia monitor de tempo real para soar alarme aos 1h12min
+        if (lunchTimerInterval) clearInterval(lunchTimerInterval);
+        lunchTimerInterval = setInterval(() => {
+            const elapsed = Date.now() - detector.state.lunchStartedAt;
+            
+            if (elapsed >= detector.config.LUNCH_CRITICAL_MS) {
+                // EXCEDEU 1H12: O alarme começa a soar agressivamente
+                detector.triggerAlarm("EXCESSO DE ALMOÇO (>1h12)", true);
+                detector.updateUI("VOLTE AO POSTO IMEDIATAMENTE");
+            }
+        }, 5000); // Checa a cada 5 segundos
 
     } else {
-        // --- FINALIZANDO ALMOÇO ---
-        detector.updateUI("ATIVO");
+        // --- FINALIZAÇÃO DO ALMOÇO ---
+        if (lunchTimerInterval) {
+            clearInterval(lunchTimerInterval);
+            lunchTimerInterval = null;
+        }
         
+        const durationMs = Date.now() - detector.state.lunchStartedAt;
+        const totalMinutes = Math.floor(durationMs / 60000);
+
+        // Se passou de 1h, loga como incidente de tempo excedido
+        if (durationMs > detector.config.LUNCH_MAX_TIME_MS) {
+            detector.logToFirebaseSmart(`ALMOÇO EXCEDIDO: ${totalMinutes}min`);
+        }
+
+        detector.stopAlarm();
+        detector.updateUI("SISTEMA ATIVO");
         appContainer.classList.remove('lunch-mode');
 
         if(btnLunch) {
             btnLunch.classList.remove('active');
-            btnLunch.disabled = true;
+            btnLunch.disabled = true; 
             btnLunch.style.opacity = "0.5";
             btnLunch.style.filter = "grayscale(1)";
         }
         
         logLunchAction("LUNCH_END");
-        console.log("▶️ Almoço FINALIZADO. Sistema retomado.");
     }
 }
 
@@ -1015,24 +1037,34 @@ if (btnLunchCancel) {
 // Debug Terminal
 window.resetLunch = function() {
     console.clear();
-    console.log("🛠️ RESETANDO LÓGICA DE ALMOÇO...");
+    console.log("🛠️ FORÇANDO RESET TOTAL DE ALMOÇO...");
+
+    if (lunchTimerInterval) {
+        clearInterval(lunchTimerInterval);
+        lunchTimerInterval = null;
+    }
+
     isLunching = false;
     localStorage.removeItem(LUNCH_KEY);
-    
-    if(appContainer) appContainer.classList.remove('lunch-mode');
-    
+
     if (detector) {
         detector.state.monitoring = true;
-        detector.updateUI("ATIVO (Resetado)");
+        detector.state.lunchStartedAt = null;
+        detector.state.lastFaceDetectedAt = Date.now();
+        detector.stopAlarm();
+        detector.updateUI("SISTEMA ATIVO");
     }
+
+    if (appContainer) appContainer.classList.remove('lunch-mode');
+    
     if (btnLunch) {
         btnLunch.classList.remove('active');
         btnLunch.disabled = false;
         btnLunch.style.opacity = "1";
         btnLunch.style.filter = "none";
     }
-    if (lunchModal) toggleModal(lunchModal, false);
-    console.log("✅ Reset concluído.");
+
+    console.log("✅ Reset concluído. Monitoramento retomado.");
 };
 
 // --- LÓGICA DE PERFIL (CLIENTE) ---

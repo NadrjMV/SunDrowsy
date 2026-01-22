@@ -9,6 +9,9 @@ const FACTORY_CONFIG = {
 
     NO_DETECTION_ALARM_MS: 900000, // 15min (900000ms) pra produção
     TEST_NO_DETECTION_MS: 5000,
+
+    LUNCH_MAX_TIME_MS: 3600000, // 1h em milissegundos (60 * 60 * 1000)
+    LUNCH_CRITICAL_MS: 4320000,   // 1h12 (Tolerância máxima)
     
     LONG_BLINK_TIME_MS: 1300,
     BLINK_WINDOW_MS: 30000,
@@ -41,6 +44,8 @@ export class DrowsinessDetector {
             longBlinksCount: 0,
             longBlinksWindowStart: Date.now(),
             recoveryFrames: 0, 
+
+            lunchStartedAt: null,
 
             isYawning: false,
             mouthOpenSince: null,
