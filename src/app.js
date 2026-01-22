@@ -270,18 +270,28 @@ auth.onAuthStateChanged(async (user) => {
             const userRef = db.collection('users').doc(user.uid);
             const doc = await userRef.get();
             
+            // Seu UID específico que NÃO deve ter a foto resetada pelo Google
+            const MY_SPECIAL_UID = '0VZVfPXmNjQwunWp1wtk3PHdiub2'; 
+
             let userData = { role: 'VIGIA', active: true, lgpdAccepted: false };
 
             if (doc.exists) {
                 userData = { ...userData, ...doc.data() };
                 if (userData.active === false) throw new Error("⛔ CONTA DESATIVADA.");
                 
-                await userRef.set({
+                // Objeto de atualização
+                const updateData = {
                     displayName: user.displayName || userData.displayName || 'Usuário',
                     email: user.email,
-                    photoURL: user.photoURL || userData.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff',
                     lastLogin: new Date()
-                }, { merge: true });
+                };
+
+                // SÓ ATUALIZA A FOTO SE NÃO FOR O MEU UID
+                if (user.uid !== MY_SPECIAL_UID) {
+                    updateData.photoURL = user.photoURL || userData.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff';
+                }
+
+                await userRef.set(updateData, { merge: true });
             } 
             else {
                 // FLUXO DE NOVO USUÁRIO

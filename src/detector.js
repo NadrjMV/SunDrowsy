@@ -8,7 +8,6 @@ const FACTORY_CONFIG = {
     HEAD_CRITICAL_TIME_MS: 120000,   
 
     NO_DETECTION_ALARM_MS: 900000, // 15min (900000ms) pra produção
-    TEST_NO_DETECTION_MS: 5000,
 
     LUNCH_MAX_TIME_MS: 3600000, // 1h em milissegundos (60 * 60 * 1000)
     LUNCH_CRITICAL_MS: 4320000,   // 1h12 (Tolerância máxima)
@@ -119,7 +118,7 @@ export class DrowsinessDetector {
         if (!this.state.monitoring || !this.state.isCalibrated) return;
 
         const idleTime = Date.now() - this.state.lastFaceDetectedAt;
-        const threshold = 5000; // Seus 5 segundos de teste
+        const threshold = 900000;
 
         if (idleTime >= threshold) {
             // Se o alarme não está ativo, disparamos novamente
