@@ -573,6 +573,7 @@ function onResults(results) {
 
     if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
         const landmarks = results.multiFaceLandmarks[0];
+        detector.resetDetectionTimer();
 
         // --- DESENHO DA MÁSCARA ---
         if (!document.hidden) {
@@ -674,7 +675,10 @@ function onResults(results) {
             }
         }
     } else {
-        if (detector && detector.state.isCalibrated) detector.updateUI("ROSTO NÃO DETECTADO");
+        // Rosto ausente: Força a verificação de inatividade
+        if (detector && detector.state.monitoring) {
+            detector.checkInactivity();
+        }
     }
     
     if (!document.hidden) canvasCtx.restore(); 

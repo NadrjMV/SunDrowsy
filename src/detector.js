@@ -6,6 +6,9 @@ const FACTORY_CONFIG = {
     MICROSLEEP_TIME_MS: 5000,       
     HEAD_DOWN_TIME_MS: 25000,      
     HEAD_CRITICAL_TIME_MS: 120000,   
+
+    NO_DETECTION_ALARM_MS: 900000, // 15min (900000ms) pra produção
+    TEST_NO_DETECTION_MS: 5000,
     
     LONG_BLINK_TIME_MS: 1300,
     BLINK_WINDOW_MS: 30000,
@@ -50,6 +53,9 @@ export class DrowsinessDetector {
             hasLoggedHeadCritical: false,  
             headRecoveryFrames: 0, 
 
+            lastFaceDetectedAt: Date.now(),
+            hasLoggedNoDetection: false,
+
             isAlarmActive: false,
             monitoring: false,
             justTriggeredLongBlink: false,
@@ -91,6 +97,32 @@ export class DrowsinessDetector {
             }, { merge: true })
             .then(() => console.log("✅ Calibração salva no Firestore"))
             .catch(e => console.error("❌ Erro ao salvar calibração:", e));
+        }
+    }
+
+    resetDetectionTimer() {
+        this.state.lastFaceDetectedAt = Date.now();
+        this.state.hasLoggedNoDetection = false;
+        
+        // Se o alarme de "Inatividade" estava tocando e o rosto voltou, paramos o alarme
+        if (this.state.isAlarmActive && this.state.lastUiText.includes("INATIVO")) {
+            this.stopAlarm();
+        }
+    }
+
+    checkInactivity() {
+        if (!this.state.monitoring || !this.state.isCalibrated) return;
+
+        const idleTime = Date.now() - this.state.lastFaceDetectedAt;
+        const threshold = 5000; // Seus 5 segundos de teste
+
+        if (idleTime >= threshold) {
+            // Se o alarme não está ativo, disparamos novamente
+            if (!this.state.isAlarmActive) {
+                this.triggerAlarm("SISTEMA INATIVO: NENHUM MOVIMENTO", true);
+                // Mantemos a flag como true para o log, mas o áudio voltará a tocar
+                this.state.hasLoggedNoDetection = true;
+            }
         }
     }
 
