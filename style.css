@@ -242,8 +242,25 @@ body {
 
 /* Modais */
 .modal {
-    position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); display: flex; justify-content: center; align-items: center; z-index: 200; transition: opacity 0.3s;
+    position: fixed; 
+    inset: 0; 
+    background: rgba(0, 0, 0, 0.85); 
+    backdrop-filter: blur(15px); 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    z-index: 200; 
+    transition: opacity 0.3s ease;
+    /* Impedir cliques quando estiver invisivel */
+    opacity: 0;
+    pointer-events: none; 
 }
+
+.modal:not(.hidden) {
+    opacity: 1;
+    pointer-events: all;
+}
+
 .modal-content {
     /* Garante que o fundo glass e a borda tenham o arredondamento */
     border-radius: 24px !important; 
@@ -1081,6 +1098,23 @@ select option { background-color: #1a1a1e; color: #fff; padding: 12px; }
     height: 1px;
     background: rgba(255, 255, 255, 0.08);
     margin: 4px 8px;
+}
+
+#debug-lock-overlay:hover {
+    background: rgba(255, 208, 40, 0.1);
+}
+
+#debug-lock-overlay:hover span {
+    transform: scale(1.2);
+}
+
+#btn-re-lock:hover {
+    background: #d32f2f;
+}
+
+#admin-unlock-pass:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 15px var(--primary-dim);
 }
 
 @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }

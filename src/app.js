@@ -11,6 +11,10 @@ let currentRightEAR = 0;
 let currentMAR = 0;
 let currentHeadRatio = 0; 
 let isCalibrating = false;
+let isCalibrationUnlocked = false;
+
+// senha admin
+const ADMIN_PASS_REQUIRED = "1234";
 
 // CORREÇÃO BACKGROUND: Substitui o intervalId por um Worker
 let detectionWorker = null;
@@ -119,6 +123,65 @@ if (formEmailLogin) {
 });
 }
 
+const lockOverlay = document.getElementById('debug-lock-overlay');
+const adminPassModal = document.getElementById('admin-pass-modal');
+const btnConfirmUnlock = document.getElementById('btn-confirm-unlock');
+const unlockInput = document.getElementById('admin-unlock-pass');
+const btnReLock = document.getElementById('btn-re-lock');
+const btnCancelUnlock = document.getElementById('btn-cancel-unlock');
+
+// 1. Abrir modal ao clicar no cadeado
+lockOverlay.addEventListener('click', () => {
+    adminPassModal.classList.remove('hidden');
+    unlockInput.focus();
+});
+
+// 2. Validar senha com o Firebase
+// Localize o bloco de validação no app.js e substitua por este:
+btnConfirmUnlock.addEventListener('click', async () => {
+    const enteredPass = unlockInput.value;
+    try {
+        const doc = await db.collection('settings').doc('globalConfig').get();
+        const correctPass = doc.data()?.calibrationPassword;
+
+        if (enteredPass === correctPass) {
+            isCalibrationUnlocked = true; // ATIVA A LÓGICA
+            lockOverlay.classList.add('hidden');
+            btnReLock.classList.remove('hidden');
+            adminPassModal.classList.add('hidden');
+            unlockInput.value = "";
+        } else {
+            alert("Senha incorreta!");
+        }
+    } catch (error) { console.error(error); }
+});
+
+if (btnCancelUnlock) {
+    btnCancelUnlock.addEventListener('click', () => {
+        // Apenas adiciona hidden; o CSS cuida do resto
+        adminPassModal.classList.add('hidden');
+        
+        // Limpa o input
+        unlockInput.value = "";
+        
+        // Garante que o cadeado volte a ser o foco da interação
+        lockOverlay.style.pointerEvents = 'auto';
+    });
+}
+
+// Garante que o abrir também seja limpo
+lockOverlay.addEventListener('click', () => {
+    adminPassModal.classList.remove('hidden');
+    unlockInput.focus();
+});
+
+// 3. Re-bloquear manualmente
+btnReLock.addEventListener('click', () => {
+    isCalibrationUnlocked = false; // TRAVA A LÓGICA
+    lockOverlay.classList.remove('hidden');
+    btnReLock.classList.add('hidden');
+});
+
 if (sessionStorage.getItem('sd_invite_token')) {
     const loginBtn = document.getElementById('btn-email-login');
 
@@ -192,7 +255,7 @@ document.getElementById('btn-google-login').addEventListener('click', () => {
         alert("Erro no login: " + error.message);
     });
 });
-
+;
 document.getElementById('btn-logout').addEventListener('click', () => {
     stopSystem();
     auth.signOut();
@@ -1168,8 +1231,14 @@ const debugSliderEyes = document.getElementById('debug-slider-eyes');
 const debugThreshValEyes = document.getElementById('debug-thresh-val-eyes');
 
 if (debugSliderEyes) {
-    // Evento INPUT: Atualiza visual e lógica local em tempo real (sem gravar no banco)
     debugSliderEyes.addEventListener('input', (e) => {
+        // TRAVA LÓGICA: Se não autenticou, reseta o valor e bloqueia
+        if (!isCalibrationUnlocked) {
+            e.target.value = detector.config.EAR_THRESHOLD;
+            alert("Ação bloqueada: Autenticação de supervisor necessária.");
+            return;
+        }
+
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.EAR_THRESHOLD = newVal;
@@ -1177,16 +1246,24 @@ if (debugSliderEyes) {
         if(debugThreshValEyes) debugThreshValEyes.innerText = newVal.toFixed(2);
     });
 
-    // Evento CHANGE: Dispara SÓ quando solta o mouse/dedo -> Grava no Banco
-    debugSliderEyes.addEventListener('change', saveCalibrationToFirebase);
+    // Garante o salvamento no Firebase ao soltar o slider
+    debugSliderEyes.addEventListener('change', () => {
+        if (isCalibrationUnlocked) saveCalibrationToFirebase();
+    });
 }
 
 const debugSliderHead = document.getElementById('debug-slider-head');
 const debugThreshValHead = document.getElementById('debug-thresh-val-head');
 
 if (debugSliderHead) {
-    // Evento INPUT: Visual e Local
     debugSliderHead.addEventListener('input', (e) => {
+        // TRAVA LÓGICA: Proteção também para o sensor de cabeça
+        if (!isCalibrationUnlocked) {
+            e.target.value = detector.config.HEAD_RATIO_THRESHOLD;
+            alert("Ação bloqueada: Autenticação de supervisor necessária.");
+            return;
+        }
+
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.HEAD_RATIO_THRESHOLD = newVal;
@@ -1194,8 +1271,10 @@ if (debugSliderHead) {
         if(debugThreshValHead) debugThreshValHead.innerText = newVal.toFixed(2);
     });
 
-    // Evento CHANGE: Grava no Banco
-    debugSliderHead.addEventListener('change', saveCalibrationToFirebase);
+    // Garante o salvamento no Firebase ao soltar o slider
+    debugSliderHead.addEventListener('change', () => {
+        if (isCalibrationUnlocked) saveCalibrationToFirebase();
+    });
 }
 
 // Torna global pro Detector conseguir chamar

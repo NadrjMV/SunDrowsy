@@ -1314,6 +1314,27 @@ function renderGroupedTable(logs) {
     });
 }
 
+// Salvando a senha de calibração no Firestore
+const btnSavePass = document.getElementById('btn-save-global-pass');
+const inputPass = document.getElementById('input-global-pass');
+
+btnSavePass.addEventListener('click', async () => {
+    const newPass = inputPass.value.trim();
+    if (newPass.length < 4) return alert("A senha deve ter pelo menos 4 dígitos.");
+
+    try {
+        // Armazena em um documento de configurações globais
+        await firebase.firestore().collection('settings').doc('globalConfig').set({
+            calibrationPassword: newPass
+        }, { merge: true });
+        
+        alert("Senha de calibração atualizada!");
+        inputPass.value = "";
+    } catch (error) {
+        console.error("Erro ao salvar senha:", error);
+    }
+});
+
 // --- DELEÇÃO ---
 window.confirmDeleteOne = async function(uid, dateFolder, docId) {
     if(window.event) window.event.stopPropagation();
