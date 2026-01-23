@@ -966,17 +966,18 @@ function toggleLunchState(active) {
         appContainer.classList.add('lunch-mode');
         logLunchAction("LUNCH_START");
 
-        // Inicia monitor de tempo real para soar alarme aos 1h12min
         if (lunchTimerInterval) clearInterval(lunchTimerInterval);
+        
         lunchTimerInterval = setInterval(() => {
             const elapsed = Date.now() - detector.state.lunchStartedAt;
             
             if (elapsed >= detector.config.LUNCH_CRITICAL_MS) {
-                // EXCEDEU 1H12: O alarme começa a soar agressivamente
-                detector.triggerAlarm("EXCESSO DE ALMOÇO (>1h12)", true);
-                detector.updateUI("VOLTE AO POSTO IMEDIATAMENTE");
+                // APENAS TOCA O SOM E AVISA NA TELA (Sem gerar log no Firebase aqui)
+                detector.audioManager.playAlert(); 
+                detector.state.isAlarmActive = true;
+                detector.updateUI("EXCESSO DE ALMOÇO (>1h12)");
             }
-        }, 5000); // Checa a cada 5 segundos
+        }, 5000);
 
     } else {
         // --- FINALIZAÇÃO DO ALMOÇO ---
@@ -988,20 +989,25 @@ function toggleLunchState(active) {
         const durationMs = Date.now() - detector.state.lunchStartedAt;
         const totalMinutes = Math.floor(durationMs / 60000);
 
-        // Se passou de 1h, loga como incidente de tempo excedido
+        // REGISTRO ÚNICO: Se excedeu 1h, salva o tempo total agora
         if (durationMs > detector.config.LUNCH_MAX_TIME_MS) {
-            detector.logToFirebaseSmart(`ALMOÇO EXCEDIDO: ${totalMinutes}min`);
+            let reason = `EXCESSO DE ALMOÇO: ${totalMinutes}min`;
+            if (durationMs >= detector.config.LUNCH_CRITICAL_MS) {
+                reason = `CRÍTICO: EXCESSO ALMOÇO (${totalMinutes}min)`;
+            }
+            
+            // Chama o log diretamente sem disparar um novo alarme
+            detector.logToFirebaseSmart(reason, null);
         }
 
         detector.stopAlarm();
         detector.updateUI("SISTEMA ATIVO");
         appContainer.classList.remove('lunch-mode');
-
+        
         if(btnLunch) {
             btnLunch.classList.remove('active');
             btnLunch.disabled = true; 
             btnLunch.style.opacity = "0.5";
-            btnLunch.style.filter = "grayscale(1)";
         }
         
         logLunchAction("LUNCH_END");
