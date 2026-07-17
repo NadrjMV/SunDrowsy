@@ -565,9 +565,14 @@ let currentPitch = 0;
 
 // --- LOOP PROCESSAMENTO ---
 function onResults(results) {
-    // 1. Limpa o canvas
-    canvasElement.width = videoElement.videoWidth;
-    canvasElement.height = videoElement.videoHeight;
+    // Resize do canvas SOMENTE quando as dimensões mudarem.
+    // Setar .width/.height toda frame destrói e recria o contexto de GPU — custo enorme.
+    const vw = videoElement.videoWidth;
+    const vh = videoElement.videoHeight;
+    if (canvasElement.width !== vw || canvasElement.height !== vh) {
+        canvasElement.width = vw;
+        canvasElement.height = vh;
+    }
     
     if (!document.hidden) {
         canvasCtx.save();
@@ -900,14 +905,27 @@ function startDetectionLoop() {
             // A detecção DEVE rodar sempre. Removemos qualquer verificação de document.hidden.
             if (!isProcessingFrame && faceMesh && videoElement && !videoElement.paused) { 
                 isProcessingFrame = true;
+
+                // ANTI-LAG WATCHDOG: Se o MediaPipe travar silenciosamente (ex: spike de CPU,
+                // WebGL bloqueado), este timeout libera a trava após 3s.
+                // Sem isso, isProcessingFrame ficaria true indefinidamente e nenhum frame
+                // seria processado, causando reset dos timers e falsos "sono profundo".
+                const watchdogTimer = setTimeout(() => {
+                    if (isProcessingFrame) {
+                        console.warn("⚠️ WATCHDOG: MediaPipe não respondeu em 3s. Liberando lock.");
+                        isProcessingFrame = false;
+                    }
+                }, 3000);
                 
                 // Envia pro MediaPipe
                 faceMesh.send({image: videoElement})
                     .then(() => { 
+                        clearTimeout(watchdogTimer);
                         isProcessingFrame = false; 
                     })
                     .catch((e) => { 
                         // Se o MediaPipe falhar (ex: WebGL/WASM crash)
+                        clearTimeout(watchdogTimer);
                         console.error("ERRO CRÍTICO no MediaPipe. Tentando recuperar.", e);
                         isProcessingFrame = false; 
                     });
@@ -1330,44 +1348,59 @@ if (debugSliderHead) {
 }
 
 // Torna global pro Detector conseguir chamar
-window.captureSnapshot = async () => {
+window.captureSnapshot = () => {
     // Verifica se o elemento de vídeo existe e está carregado
-    if (!videoElement) return null;
-
-    // FIX: Se o vídeo não tiver dimensões (ex: display none), aborta para evitar erro ou imagem preta
+    if (!videoElement) return Promise.resolve(null);
+    
+    // FIX: Se o vídeo não tiver dimensões (ex: display none), aborta
     if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
-        console.warn("⚠️ Snapshot abortado: Vídeo sem dimensões detectadas (videoWidth=0).");
-        return null;
+        console.warn("⚠️ Snapshot abortado: Vídeo sem dimensões.");
+        return Promise.resolve(null);
     }
 
-    // Retorna uma Promise que resolve com a string Base64 da imagem RAW
+    // ANTI-LAG: Usa requestIdleCallback para não bloquear a thread de detecção.
+    // O toDataURL() é síncrono e pesado — executar em idle evita travar o loop principal.
     return new Promise((resolve) => {
-        // 1. Cria um canvas temporário em memória para a captura raw
-        const tempCanvas = document.createElement('canvas');
-        const tempCtx = tempCanvas.getContext('2d');
+        const doCapture = () => {
+            try {
+                // Resolução reduzida: 320x240 é suficiente para identificar o operador
+                // e é ~25x mais rápido de codificar que 1080p (9x menos pixels + JPEG mais leve).
+                const SNAP_W = 320;
+                const SNAP_H = 240;
 
-        // 2. Define o tamanho do canvas com base no vídeo
-        tempCanvas.width = videoElement.videoWidth;
-        tempCanvas.height = videoElement.videoHeight;
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width  = SNAP_W;
+                tempCanvas.height = SNAP_H;
+                const tempCtx = tempCanvas.getContext('2d');
 
-        // 3. Desenha o frame atual do vídeo (Raw) no canvas temporário
-        // Aplica o espelhamento horizontal (mirror) para a imagem capturada
-        tempCtx.save();
-        tempCtx.translate(tempCanvas.width, 0);
-        tempCtx.scale(-1, 1);
-        tempCtx.drawImage(videoElement, 0, 0, tempCanvas.width, tempCanvas.height);
-        tempCtx.restore();
+                // Espelha horizontalmente (mirror) igual ao preview
+                tempCtx.save();
+                tempCtx.translate(SNAP_W, 0);
+                tempCtx.scale(-1, 1);
+                tempCtx.drawImage(videoElement, 0, 0, SNAP_W, SNAP_H);
+                tempCtx.restore();
 
-        // 4. Converte a imagem raw para Base64 (qualidade 0.5 para otimizar o Firebase)
-        const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.5);
+                const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
 
-        if (dataUrl && dataUrl.length > 100) {
-            // Log para debug, mostrando o tamanho da imagem
-            console.log("📸 Snapshot RAW capturado e convertido para Base64 (Tamanho: " + Math.round(dataUrl.length/1024) + "KB)");
-            resolve(dataUrl);
+                if (dataUrl && dataUrl.length > 100) {
+                    console.log(`📸 Snapshot capturado (${SNAP_W}x${SNAP_H} — ${Math.round(dataUrl.length/1024)}KB)`);
+                    resolve(dataUrl);
+                } else {
+                    console.warn("⚠️ Falha ao gerar snapshot.");
+                    resolve(null);
+                }
+            } catch(e) {
+                console.error("❌ Erro no snapshot:", e);
+                resolve(null);
+            }
+        };
+
+        // requestIdleCallback: executa só quando o browser NÃO está ocupado com frames.
+        // Fallback para setTimeout(0) em browsers sem suporte (Safari antigo).
+        if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(doCapture, { timeout: 2000 });
         } else {
-            console.warn("⚠️ Falha ao gerar snapshot RAW.");
-            resolve(null);
+            setTimeout(doCapture, 0);
         }
     });
 };

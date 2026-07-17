@@ -25,7 +25,11 @@ const FACTORY_CONFIG = {
     REQUIRED_LONG_BLINKS: 5,        
     REQUIRED_YAWNS: 5,   
     
-    VERSION: "3.1.5",
+    // ANTI-LAG: deltas de frame maiores que este valor são ignorados
+    // Isso evita que travamentos de CPU inflacionem o tempo de "olho fechado"
+    LAG_THRESHOLD_MS: 500,
+
+    VERSION: "3.2.0",
     
     role: 'VIGIA'
 };
@@ -35,11 +39,19 @@ export class DrowsinessDetector {
         this.audioManager = audioManager;
         this.onStatusChange = onStatusChange;
         this.config = { ...FACTORY_CONFIG };
-        this.lastProcessTime = Date.now();
 
         this.state = {
             isCalibrated: false,
             eyesClosedSince: null,
+
+            // ANTI-LAG: substituem a medição por relógio de parede.
+            // eyesClosedAccumMs soma apenas os deltas REAIS entre frames (spikes ignorados).
+            // leftEarBuffer/rightEarBuffer suavizam leituras ruidosas de EAR.
+            lastFrameAt: Date.now(),
+            eyesClosedAccumMs: 0,
+            leftEarBuffer: [],
+            rightEarBuffer: [],
+
             longBlinksCount: 0,
             longBlinksWindowStart: Date.now(),
             recoveryFrames: 0, 
@@ -70,8 +82,6 @@ export class DrowsinessDetector {
             lastUiYawn: -1,
             lastUiText: ""
         };
-
-        // Microssono desativado: Removido buffer de memória e timers
     }
 
     setRole(newRole) {
@@ -174,15 +184,28 @@ export class DrowsinessDetector {
         const now = Date.now();
         const cfg = this.config;
 
-        if (now - this.lastProcessTime > 2000) {
+        // ─── ANTI-LAG: Mede o delta REAL entre frames consecutivos ───────────────
+        // Se o PC travou (lag spike), o delta será grande mas o olho NÃO estava
+        // necessariamente fechado durante todo esse tempo. Ignoramos o delta.
+        const frameDelta = now - this.state.lastFrameAt;
+        this.state.lastFrameAt = now;
+
+        // Gap > 2s: reset completo (MediaPipe parou ou aba ficou em background)
+        if (frameDelta > 2000) {
             this.state.eyesClosedSince = null;
+            this.state.eyesClosedAccumMs = 0;
+            this.state.leftEarBuffer = [];
+            this.state.rightEarBuffer = [];
             this.state.mouthOpenSince = null;
             this.state.headDownSince = null;
-            this.lastProcessTime = now;
-            return; 
+            return;
         }
-        this.lastProcessTime = now;
 
+        // Spike de lag (500ms–2s): não acumula como tempo de olho fechado
+        const isLagSpike = frameDelta > cfg.LAG_THRESHOLD_MS;
+        // ─────────────────────────────────────────────────────────────────────────
+
+        // Janela de piscadas
         if (now - this.state.longBlinksWindowStart > cfg.BLINK_WINDOW_MS) {
             this.state.longBlinksCount = 0;
             this.state.yawnCount = 0; 
@@ -191,7 +214,18 @@ export class DrowsinessDetector {
             this.updateUICounters(); 
         }
 
-        const isClosed = (leftEAR < cfg.EAR_THRESHOLD) && (rightEAR < cfg.EAR_THRESHOLD);
+        // ─── ANTI-LAG: EAR suavizado (média móvel 3 frames por olho) ─────────────
+        // Evita que um único frame ruidoso/lento seja interpretado como piscada longa.
+        this.state.leftEarBuffer.push(leftEAR);
+        this.state.rightEarBuffer.push(rightEAR);
+        if (this.state.leftEarBuffer.length > 3) this.state.leftEarBuffer.shift();
+        if (this.state.rightEarBuffer.length > 3) this.state.rightEarBuffer.shift();
+
+        const smoothLeft  = this.state.leftEarBuffer.reduce((a, b) => a + b, 0) / this.state.leftEarBuffer.length;
+        const smoothRight = this.state.rightEarBuffer.reduce((a, b) => a + b, 0) / this.state.rightEarBuffer.length;
+        // ─────────────────────────────────────────────────────────────────────────
+
+        const isClosed = (smoothLeft < cfg.EAR_THRESHOLD) && (smoothRight < cfg.EAR_THRESHOLD);
         let isEffectivelyClosed = isClosed;
 
         if (!isClosed && this.state.eyesClosedSince !== null && this.state.recoveryFrames < 5) {
@@ -219,16 +253,24 @@ export class DrowsinessDetector {
         }
 
         if (isEffectivelyClosed) {
-            if (this.state.eyesClosedSince === null) this.state.eyesClosedSince = now;
-            const timeClosed = now - this.state.eyesClosedSince;
+            // Inicia a contagem se é o primeiro frame com olho fechado
+            if (this.state.eyesClosedSince === null) {
+                this.state.eyesClosedSince = now;
+                this.state.eyesClosedAccumMs = 0;
+            }
+
+            // ANTI-LAG: só acumula o delta se NÃO for um spike de lag.
+            // Se o PC travou, esse tempo não é contado como "olho fechado".
+            if (!isLagSpike) {
+                this.state.eyesClosedAccumMs += frameDelta;
+            }
+
+            const timeClosed = this.state.eyesClosedAccumMs;
             
             if (timeClosed >= cfg.CRITICAL_TIME_MS) {
                 this.triggerAlarm(`PERIGO: SONO PROFUNDO (${(timeClosed/1000).toFixed(1)}s)`);
                 return;
             } 
-            
-            // REMOVIDO: triggerMicrosleepEvent
-            // O sistema ignora o alerta de 5s, mas continua contando como piscada longa se fechar e abrir.
 
             if (timeClosed >= cfg.LONG_BLINK_TIME_MS && !this.state.justTriggeredLongBlink) {
                 this.triggerLongBlink();
@@ -236,6 +278,7 @@ export class DrowsinessDetector {
         } else {
             if (this.state.eyesClosedSince !== null) {
                 this.state.eyesClosedSince = null;
+                this.state.eyesClosedAccumMs = 0;
                 this.state.justTriggeredLongBlink = false;
                 this.state.recoveryFrames = 0;
                 this.checkFatigueAccumulation();
