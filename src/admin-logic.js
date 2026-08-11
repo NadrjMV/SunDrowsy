@@ -950,11 +950,23 @@ function bindTeamActionsDelegation() {
 
         // --- AÇÃO: DESATIVAR/ATIVAR (MODAL DE CONFIRMAÇÃO) ---
         if (action === 'toggle-disabled') {
-            if (!window.isSystemOwner) return;
-
             const ref = db.collection('users').doc(uid);
             const snap = await ref.get();
-            const isDisabled = snap.exists ? !!snap.data().disabled : false;
+            if (!snap.exists) return;
+
+            const targetData = snap.data();
+            const targetRole = (targetData.role || '').toUpperCase();
+            const isTargetAgent = targetRole !== 'OWNER' && targetRole !== 'DONO' && targetRole !== 'ADMIN';
+
+            const canToggle = window.isSystemOwner || (window.currentAdminRole === 'ADMIN' && isTargetAgent);
+
+            if (!canToggle) {
+                alert("Você não tem permissão para alterar o status desta conta.");
+                closeAllMenus();
+                return;
+            }
+
+            const isDisabled = !!targetData.disabled || targetData.active === false;
 
             const confirmTitle = document.getElementById('confirm-title');
             const confirmDesc = document.getElementById('confirm-desc');
@@ -974,7 +986,10 @@ function bindTeamActionsDelegation() {
             btnExec.onclick = async () => {
                 btnExec.disabled = true;
                 try {
-                    await ref.update({ disabled: !isDisabled });
+                    await ref.update({
+                        disabled: !isDisabled,
+                        active: isDisabled
+                    });
                     confirmModal.style.opacity = '0';
                     setTimeout(() => confirmModal.classList.add('hidden'), 300);
                 } catch (err) {
@@ -1016,12 +1031,24 @@ function renderTeamList(users) {
         else if(user.role === 'ADMIN' || user.role === 'admin') roleBadge = `<span class="badge-neon badge-admin">ADMIN</span>`;
         else if(user.role === 'VIGIA' || user.role === 'GUARD') roleBadge = `<span class="badge-neon badge-guard">VIGIA</span>`;
 
+        const isUserDisabled = !!user.disabled || user.active === false;
+        const normalizedRole = (user.role || '').toUpperCase();
+        const isAgent = normalizedRole !== 'OWNER' && normalizedRole !== 'DONO' && normalizedRole !== 'ADMIN';
+        const canToggleDisabled = window.isSystemOwner || (window.currentAdminRole === 'ADMIN' && isAgent);
+
+        const statusTag = isUserDisabled 
+            ? `<span style="font-size: 0.65rem; background: rgba(255, 69, 58, 0.2); color: var(--danger); border: 1px solid rgba(255, 69, 58, 0.4); padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-left: 6px;">SUSPENSO</span>`
+            : '';
+
         const itemHtml = `
-        <div class="tech-list-item">
+        <div class="tech-list-item" style="${isUserDisabled ? 'opacity: 0.75;' : ''}">
             <div style="display: flex; align-items: center; gap: 16px; flex: 1;">
                 <img src="${photo}" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,0.1);">
                 <div style="display: flex; flex-direction: column;">
-                    <span style="font-weight: 600; font-size: 0.95rem; color: #fff;">${user.displayName}</span>
+                    <div style="display: flex; align-items: center;">
+                        <span style="font-weight: 600; font-size: 0.95rem; color: #fff;">${user.displayName}</span>
+                        ${statusTag}
+                    </div>
                     <span style="font-size: 0.75rem; color: var(--text-muted);">${user.email || '---'}</span>
                 </div>
             </div>
@@ -1047,17 +1074,19 @@ function renderTeamList(users) {
                         Ver Atividade
                     </button>
 
+                    ${(window.isSystemOwner || canToggleDisabled) ? '<div class="menu-divider"></div>' : ''}
+
                     ${window.isSystemOwner ? `
-                        <div class="menu-divider"></div>
-                        
                         <button class="team-menu-item" data-action="set-role" data-uid="${user.uid}">
                             <span class="material-icons-round">manage_accounts</span>
                             Mudar Acesso
                         </button>
+                    ` : ''}
 
+                    ${canToggleDisabled ? `
                         <button class="team-menu-item" data-action="toggle-disabled" data-uid="${user.uid}" style="color: #FF453A !important;">
                             <span class="material-icons-round">block</span>
-                            ${user.disabled ? 'Reativar Conta' : 'Suspender Acesso'}
+                            ${isUserDisabled ? 'Reativar Conta' : 'Suspender Acesso'}
                         </button>
                     ` : ''}
                 </div>

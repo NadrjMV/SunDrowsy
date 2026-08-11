@@ -277,7 +277,7 @@ auth.onAuthStateChanged(async (user) => {
 
             if (doc.exists) {
                 userData = { ...userData, ...doc.data() };
-                if (userData.active === false) throw new Error("⛔ CONTA DESATIVADA.");
+                if (userData.active === false || userData.disabled === true) throw new Error("⛔ CONTA DESATIVADA.");
                 
                 // Objeto de atualização
                 const updateData = {
