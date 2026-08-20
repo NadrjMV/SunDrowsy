@@ -944,23 +944,27 @@ function handleVisibilityChange() {
     if (document.hidden) {
         // A ABA SAIU DO FOCO
         console.warn("😴 PÁGINA INATIVA: A detecção de frames continua. UI desativada.");
-        
-        // PARE o alarme (A única exceção de segurança de UX que permitimos no background)
-        detector.stopAlarm(); 
 
-        detector.state.monitoring = true;
-        detector.updateUI("MONITORANDO: SEGUNDO PLANO");
-        
+        // PARE o alarme (A única exceção de segurança de UX que permitimos no background)
+        detector.stopAlarm();
+
+        if (!isLunching) {
+            detector.state.monitoring = true;
+            detector.updateUI("MONITORANDO: SEGUNDO PLANO");
+        }
+
     } else {
         // A ABA VOLTOU AO FOCO
         console.log("🚀 PÁGINA ATIVA: Retomando UI. Monitoramento FULL POWER.");
 
         // Não fazemos nada com o Worker, pois ele roda continuamente.
-        detector.state.monitoring = true;
-        
+        if (!isLunching) {
+            detector.state.monitoring = true;
+        }
+
         // Retoma o UI (se não houver alarme ativo)
         if (!detector.state.isAlarmActive) {
-            detector.updateUI("SISTEMA ATIVO");
+            detector.updateUI(isLunching ? "PAUSA: ALMOÇO 🍔" : "SISTEMA ATIVO");
         }
     }
 }
@@ -1333,7 +1337,7 @@ if (debugSliderHead) {
             alert("Ação bloqueada: Autenticação de supervisor necessária.");
             return;
         }
-
+ 
         const newVal = parseFloat(e.target.value);
         if (detector) {
             detector.config.HEAD_RATIO_THRESHOLD = newVal;
