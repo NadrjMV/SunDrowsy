@@ -58,8 +58,14 @@
                             <option value="today">Hoje</option>
                             <option value="week">Últimos 7 dias</option>
                             <option value="month">Este Mês</option>
+                            <option value="custom">Data específica</option>
                         </select>
-                        
+                        <input type="date" id="custom-date-input" class="date-filter" style="display: none;">
+
+                        <button id="btn-refresh-logs" class="btn-secondary" title="Forçar atualização (ignora cache local)" style="padding: 6px 10px; font-size: 0.8rem; line-height: 1;">
+                            <span class="material-icons-round" style="font-size: 16px; vertical-align: middle;">refresh</span>
+                        </button>
+
                         <div class="user-badge" style="margin: 0; background: transparent; padding: 0; border: none;">
                             <img id="admin-photo" src="" style="width: 40px; height: 40px; border-radius: 50%; cursor: pointer; border: 2px solid var(--glass-border);" title="Ir para Meu Perfil">
                         </div>
@@ -111,7 +117,7 @@
                     </div>
                     <table>
                         <thead>
-                            <tr><th style="width: 120px;">HORÁRIO</th><th>COLABORADOR</th><th>OCORRÊNCIA</th><th style="text-align: right;">AÇÃO</th></tr>
+                            <tr><th style="width: 140px;">DATA/HORA</th><th>COLABORADOR</th><th>OCORRÊNCIA</th><th style="text-align: right;">AÇÃO</th></tr>
                         </thead>
                         <tbody id="logs-table-body">
                             <tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">Carregando dados...</td></tr>

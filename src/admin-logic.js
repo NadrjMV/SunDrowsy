@@ -12,6 +12,8 @@ const tableBody = document.getElementById('logs-table-body');
 const periodFilter = document.getElementById('period-filter');
 
 const userFilter = document.getElementById('user-filter'); // NOVO SELETOR
+const customDateInput = document.getElementById('custom-date-input');
+const btnRefreshLogs = document.getElementById('btn-refresh-logs');
 const teamGrid = document.getElementById('team-grid-container');
 
 const navBtns = document.querySelectorAll('.nav-btn[data-view]');
@@ -40,10 +42,18 @@ const adminProfileRole = document.getElementById('admin-profile-role');
 const adminProfilePreview = document.getElementById('admin-profile-preview');
 
 // ESTADO GLOBAL
-let charts = {}; 
+let charts = {};
 let unsubscribeLogs = null;
 let unsubscribeTeam = null;
 let globalRawLogs = []; // Armazena todos os logs antes de filtrar
+
+// --- CACHE DE LOGS (evita re-consultar o Firestore ao trocar de filtro) ---
+const logsCache = new Map(); // chave: "period|customDate|uid" -> { logs, fetchedAt }
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutos
+
+function getCacheKey(period, customDateStr, selectedUid) {
+    return `${period}|${customDateStr || ''}|${selectedUid || 'ALL'}`;
+}
 
 // --- VARIÁVEL LOCAL DO MÓDULO EQUIPE ---
 let localUsersList = [];
@@ -251,14 +261,43 @@ if(adminFormProfile) {
 if(periodFilter) {
     periodFilter.addEventListener('change', (e) => {
         if (unsubscribeLogs) unsubscribeLogs();
-        setupRealtimeDashboard(e.target.value);
+
+        if (e.target.value === 'custom') {
+            if (customDateInput) {
+                customDateInput.style.display = 'inline-block';
+                if (!customDateInput.value) {
+                    customDateInput.value = formatDateFolder(new Date());
+                }
+            }
+            setupRealtimeDashboard('custom', customDateInput ? customDateInput.value : null);
+        } else {
+            if (customDateInput) customDateInput.style.display = 'none';
+            setupRealtimeDashboard(e.target.value);
+        }
+    });
+}
+
+if(customDateInput) {
+    customDateInput.addEventListener('change', (e) => {
+        if (!e.target.value) return;
+        if (unsubscribeLogs) unsubscribeLogs();
+        setupRealtimeDashboard('custom', e.target.value);
     });
 }
 
 if(userFilter) {
     userFilter.addEventListener('change', () => {
         if (unsubscribeLogs) unsubscribeLogs();
-        setupRealtimeDashboard(periodFilter ? periodFilter.value : 'today');
+        const period = periodFilter ? periodFilter.value : 'today';
+        setupRealtimeDashboard(period, period === 'custom' && customDateInput ? customDateInput.value : null);
+    });
+}
+
+if(btnRefreshLogs) {
+    btnRefreshLogs.addEventListener('click', () => {
+        const period = periodFilter ? periodFilter.value : 'today';
+        const customDateStr = period === 'custom' && customDateInput ? customDateInput.value : null;
+        setupRealtimeDashboard(period, customDateStr, true);
     });
 }
 
@@ -325,16 +364,25 @@ async function fetchLegacyLogsForUsers(uids, dateFolders, startDate, concurrency
     return out;
 }
 
-async function fetchUnifiedLogs(period, selectedUid) {
+async function fetchUnifiedLogs(period, selectedUid, customDateStr) {
     const now = new Date();
     let startDate = new Date();
+    let endDate = now;
 
-    if (period === 'week') startDate.setDate(now.getDate() - 7);
-    else if (period === 'month') startDate.setMonth(now.getMonth() - 1);
-    else startDate.setHours(0, 0, 0, 0);
+    if (period === 'week') {
+        startDate.setDate(now.getDate() - 7);
+    } else if (period === 'month') {
+        startDate.setMonth(now.getMonth() - 1);
+    } else if (period === 'custom' && customDateStr) {
+        const [y, m, d] = customDateStr.split('-').map(Number);
+        startDate = new Date(y, m - 1, d, 0, 0, 0, 0);
+        endDate = new Date(y, m - 1, d, 23, 59, 59, 999);
+    } else {
+        startDate.setHours(0, 0, 0, 0);
+    }
 
     // range de pastas (para legado)
-    const dateFolders = buildDateFolders(startDate, now);
+    const dateFolders = buildDateFolders(startDate, endDate);
 
     // uids alvo
     let uids = [];
@@ -350,6 +398,7 @@ async function fetchUnifiedLogs(period, selectedUid) {
     try {
         const snap = await db.collectionGroup('logs')
             .where('timestamp', '>=', startDate)
+            .where('timestamp', '<=', endDate)
             .orderBy('timestamp', 'desc')
             .get();
 
@@ -377,13 +426,13 @@ async function fetchUnifiedLogs(period, selectedUid) {
 
     let legacy = [];
 const shouldFetchLegacy =
-    (period === 'today') || (selectedUid && selectedUid !== 'ALL');
+    (period === 'today') || (period === 'custom') || (selectedUid && selectedUid !== 'ALL');
 
 // Performance mode:
-// - 'today' carrega legado (só 1 pasta/dia) => rápido
+// - 'today'/'custom' carrega legado (só 1 pasta/dia) => rápido
 // - 'week'/'month' só carrega legado quando você filtra 1 usuário (evita varrer a equipe inteira)
 if (shouldFetchLegacy) {
-    const legacyConcurrency = (period === 'today') ? 24 : 10;
+    const legacyConcurrency = (period === 'today' || period === 'custom') ? 24 : 10;
     legacy = await fetchLegacyLogsForUsers(uids, dateFolders, startDate, legacyConcurrency);
 } else {
     console.warn("⚡ Performance: pulando legado em 'week/month' com 'Todos os Usuários'. Rode migração dos logs legados para ficar instantâneo.");
@@ -410,15 +459,25 @@ if (shouldFetchLegacy) {
 }
 
 // --- LÓGICA DO DASHBOARD (CORE) ---
-async function setupRealtimeDashboard(period) {
-    console.log(`📡 Iniciando busca de logs. Período: ${period}`);
+async function setupRealtimeDashboard(period, customDateStr, forceRefresh = false) {
+    const selectedUid = userFilter ? userFilter.value : 'ALL';
+    const cacheKey = getCacheKey(period, customDateStr, selectedUid);
+    const cached = logsCache.get(cacheKey);
+
+    if (!forceRefresh && cached && (Date.now() - cached.fetchedAt) < CACHE_TTL_MS) {
+        console.log(`💾 Cache HIT (${cacheKey}) — 0 leituras gastas. ${cached.logs.length} registros.`);
+        globalRawLogs = cached.logs;
+        filterAndRenderLogs();
+        return;
+    }
+
+    console.log(`📡 Iniciando busca de logs. Período: ${period}${customDateStr ? ' (' + customDateStr + ')' : ''}`);
     if(tableBody) tableBody.style.opacity = '0.5';
 
-    const selectedUid = userFilter ? userFilter.value : 'ALL';
-
     try {
-        const { logs } = await fetchUnifiedLogs(period, selectedUid);
+        const { logs } = await fetchUnifiedLogs(period, selectedUid, customDateStr);
         console.log(`📊 Snapshot recebido: ${logs.length} documentos encontrados.`);
+        logsCache.set(cacheKey, { logs, fetchedAt: Date.now() });
         globalRawLogs = logs;
         if(tableBody) tableBody.style.opacity = '1';
         filterAndRenderLogs();
@@ -1205,7 +1264,7 @@ function renderGroupedTable(logs) {
 
     if(tableHeader) {
         tableHeader.innerHTML = `
-            <th style="width: 120px;">HORÁRIO</th>
+            <th style="width: 140px;">DATA/HORA</th>
             <th>COLABORADOR</th>
             <th>OCORRÊNCIA</th>
             <th style="text-align: right;">DETALHES / FOTO</th>
@@ -1244,7 +1303,7 @@ function renderGroupedTable(logs) {
         const isMultiple = group.items.length > 1;
         const lastLog = group.items[0];
         const date = lastLog.timestamp.toDate();
-        const time = date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const time = `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
         
         // Busca o nome real no objeto do log ou na lista local de usuários
         const userData = localUsersList.find(u => u.uid === lastLog.uid);
@@ -1305,7 +1364,8 @@ function renderGroupedTable(logs) {
         if (isMultiple) {
             let detailsHtml = '';
             group.items.forEach(item => {
-                const iTime = item.timestamp.toDate().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const iDateObj = item.timestamp.toDate();
+                const iTime = `${iDateObj.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${iDateObj.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
                 const desc = item.details ? `<strong>${item.reason}</strong> - ${item.details}` : item.reason;
                 const snapshotBtn = item.snapshot ? `
                     <button class="btn-icon-danger btn-view-snap" style="margin-right:8px; padding: 4px;" data-snap="${item.snapshot}" title="Ver Foto">
