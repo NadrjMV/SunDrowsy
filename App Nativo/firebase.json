@@ -1,0 +1,12 @@
+{
+  "hosting": {
+    "public": "ota-release",
+    "ignore": ["firebase.json", "**/.*"],
+    "headers": [
+      {
+        "source": "latest.yml",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }]
+      }
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "name": "sundrowsy-native",
+  "version": "1.0.0",
+  "description": "SunDrowsy - versao nativa para Windows (app + dot flutuante de status)",
+  "main": "main.js",
+  "author": "jordanlvs",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never",
+    "prepare-ota": "node scripts/prepare-ota.js",
+    "release": "npm run dist && npm run prepare-ota && firebase deploy --only hosting"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.weblv.sundrowsy",
+    "productName": "SunDrowsy",
+    "asar": true,
+    "files": [
+      "**/*",
+      "!node_modules/electron-builder"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "web",
+        "filter": [
+          "index.html",
+          "admin.html",
+          "style.css",
+          "alert.mp3",
+          "assets/**/*",
+          "src/**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://sundrowsy-db163.web.app/"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "loudness": "^0.4.2"
+  }
+}

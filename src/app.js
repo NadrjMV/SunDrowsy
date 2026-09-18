@@ -58,19 +58,17 @@ let isProcessingFrame = false;
 // A rede neural (FaceMesh) é o gargalo real de CPU: quanto menor a imagem e a
 // frequência de análise, menos custo por segundo. Sonolência não é um evento de
 // milissegundos, então rodar mais devagar não compromete a detecção.
+// Resolução um pouco mais alta que antes: como o throttle de FPS já segura o custo de
+// CPU (a rede neural roda bem menos vezes por segundo), sobra margem pra pedir uma
+// imagem mais nítida sem voltar a pesar na máquina.
 const PERFORMANCE_PROFILES = {
-    economia:    { label: 'Economia',        fps: 8,  width: 480,  height: 360, drawMesh: false },
-    equilibrado: { label: 'Equilibrado',     fps: 15, width: 768,  height: 432, drawMesh: true },
-    precisao:    { label: 'Precisão máxima', fps: 20, width: 1080, height: 720, drawMesh: true },
+    economia:    { label: 'Economia',        fps: 8,  width: 640,  height: 480, drawMesh: false },
+    equilibrado: { label: 'Equilibrado',     fps: 12, width: 960,  height: 540, drawMesh: true },
+    precisao:    { label: 'Precisão máxima', fps: 18, width: 1280, height: 720, drawMesh: true },
 };
-const PERF_STORAGE_KEY = 'sundrowsy_perf_profile';
-
-function getSavedPerformanceProfileKey() {
-    const saved = localStorage.getItem(PERF_STORAGE_KEY);
-    return PERFORMANCE_PROFILES[saved] ? saved : 'equilibrado';
-}
-
-let currentPerfProfileKey = getSavedPerformanceProfileKey();
+// Sempre inicia travado em "Precisão máxima" — não lembra a última escolha entre
+// sessões. Trocar exige senha de supervisor (ver wiring do #performance-mode).
+let currentPerfProfileKey = 'precisao';
 window.currentPerfProfile = PERFORMANCE_PROFILES[currentPerfProfileKey];
 
 // PERFIL ELEMENTS
@@ -165,52 +163,58 @@ const unlockInput = document.getElementById('admin-unlock-pass');
 const btnReLock = document.getElementById('btn-re-lock');
 const btnCancelUnlock = document.getElementById('btn-cancel-unlock');
 
-// 1. Abrir modal ao clicar no cadeado
-lockOverlay.addEventListener('click', () => {
-    adminPassModal.classList.remove('hidden');
-    unlockInput.focus();
-});
+// Pede a senha de supervisor (mesma senha da calibração, salva em
+// settings/globalConfig.calibrationPassword) e resolve true/false.
+// Reaproveitado tanto pra liberar os sliders de calibração quanto pra trocar o
+// perfil de desempenho.
+function requestAdminPassword() {
+    return new Promise((resolve) => {
+        adminPassModal.classList.remove('hidden');
+        unlockInput.value = "";
+        unlockInput.focus();
 
-// 2. Validar senha com o Firebase
-// Localize o bloco de validação no app.js e substitua por este:
-btnConfirmUnlock.addEventListener('click', async () => {
-    const enteredPass = unlockInput.value;
-    try {
-        const doc = await db.collection('settings').doc('globalConfig').get();
-        const correctPass = doc.data()?.calibrationPassword;
-
-        if (enteredPass === correctPass) {
-            isCalibrationUnlocked = true; // ATIVA A LÓGICA
-            lockOverlay.classList.add('hidden');
-            btnReLock.classList.remove('hidden');
+        const cleanup = () => {
             adminPassModal.classList.add('hidden');
             unlockInput.value = "";
-        } else {
-            showToast("Senha incorreta!");
-        }
-    } catch (error) { console.error(error); }
-});
+            btnConfirmUnlock.onclick = null;
+            btnCancelUnlock.onclick = null;
+        };
 
-if (btnCancelUnlock) {
-    btnCancelUnlock.addEventListener('click', () => {
-        // Apenas adiciona hidden; o CSS cuida do resto
-        adminPassModal.classList.add('hidden');
-        
-        // Limpa o input
-        unlockInput.value = "";
-        
-        // Garante que o cadeado volte a ser o foco da interação
-        lockOverlay.style.pointerEvents = 'auto';
+        btnConfirmUnlock.onclick = async () => {
+            const enteredPass = unlockInput.value;
+            try {
+                const doc = await db.collection('settings').doc('globalConfig').get();
+                const correctPass = doc.data()?.calibrationPassword;
+                if (enteredPass === correctPass) {
+                    cleanup();
+                    resolve(true);
+                } else {
+                    showToast("Senha incorreta!");
+                }
+            } catch (error) {
+                console.error(error);
+                showToast("Erro ao validar senha.");
+            }
+        };
+
+        btnCancelUnlock.onclick = () => {
+            cleanup();
+            resolve(false);
+        };
     });
 }
 
-// Garante que o abrir também seja limpo
-lockOverlay.addEventListener('click', () => {
-    adminPassModal.classList.remove('hidden');
-    unlockInput.focus();
+// 1. Abrir modal ao clicar no cadeado
+lockOverlay.addEventListener('click', async () => {
+    const ok = await requestAdminPassword();
+    if (ok) {
+        isCalibrationUnlocked = true; // ATIVA A LÓGICA
+        lockOverlay.classList.add('hidden');
+        btnReLock.classList.remove('hidden');
+    }
 });
 
-// 3. Re-bloquear manualmente
+// 2. Re-bloquear manualmente
 btnReLock.addEventListener('click', () => {
     isCalibrationUnlocked = false; // TRAVA A LÓGICA
     lockOverlay.classList.remove('hidden');
@@ -458,6 +462,13 @@ function startAppFlow(user, userRole, userData) {
     if (roleSel) roleSel.value = userRole;
     if (roleDisp) roleDisp.innerText = userRole;
 
+    // Botão do Painel Admin: só aparece pra quem tem acesso (ADMIN/OWNER)
+    const btnAdminPanel = document.getElementById('btn-admin-panel');
+    if (btnAdminPanel) {
+        const role = (userRole || '').toUpperCase();
+        btnAdminPanel.style.display = (role === 'ADMIN' || role === 'OWNER' || role === 'DONO') ? 'flex' : 'none';
+    }
+
     // Inicia Sistema
     initSystem(); 
     if (detector) detector.setRole(userRole);
@@ -585,7 +596,6 @@ async function applyPerformanceProfile(key) {
     if (!PERFORMANCE_PROFILES[key]) return;
     currentPerfProfileKey = key;
     window.currentPerfProfile = PERFORMANCE_PROFILES[key];
-    localStorage.setItem(PERF_STORAGE_KEY, key);
 
     if (!detector || !videoElement.srcObject) return; // sistema ainda não iniciado, o perfil só se aplica ao iniciar
 
@@ -613,7 +623,21 @@ window.applyPerformanceProfile = applyPerformanceProfile;
 const perfModeSelector = document.getElementById('performance-mode');
 if (perfModeSelector) {
     perfModeSelector.value = currentPerfProfileKey;
-    perfModeSelector.addEventListener('change', (e) => applyPerformanceProfile(e.target.value));
+
+    // Trocar o perfil de desempenho exige senha de supervisor — por padrão o app
+    // roda sempre em Precisão máxima; baixar a qualidade é uma decisão de quem
+    // administra a equipe, não do vigia sozinho.
+    perfModeSelector.addEventListener('change', async (e) => {
+        const newKey = e.target.value;
+        const previousKey = currentPerfProfileKey;
+        e.target.value = previousKey; // reverte visualmente até a senha ser confirmada
+
+        const ok = await requestAdminPassword();
+        if (ok) {
+            e.target.value = newKey;
+            applyPerformanceProfile(newKey);
+        }
+    });
 }
 
 function stopSystem() {
