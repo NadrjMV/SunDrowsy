@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SunDrowsy | Analytics</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192.png">
+    <link rel="apple-touch-icon" href="assets/favicon-180.png">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=5">
@@ -14,21 +17,23 @@
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
 </head>
-<body>
+<body class="admin-page">
 
     <div class="admin-layout">
-        <nav class="sidebar glass-panel" style="margin: 0; border-radius: 0; border-right: 1px solid var(--glass-border); height: 100%;">
-            <div class="brand-title" style="font-size: 1.5rem; margin-bottom: 3rem;">Sun<span>Admin</span></div>
-            
+        <nav class="sidebar">
+            <div class="brand-lockup">
+                <img src="assets/sundrowsy-logo.png" alt="" class="brand-mark">
+                <span class="brand-wordmark">Sun<span>Drowsy</span></span>
+            </div>
+
             <button class="nav-btn active" data-view="dashboard"><span class="material-icons-round">analytics</span> Visão Geral</button>
             <button class="nav-btn" data-view="team"><span class="material-icons-round">people</span> Equipe</button>
             <button class="nav-btn" data-view="reports"><span class="material-icons-round">assessment</span> Relatórios</button>
-            <button class="nav-btn" data-view="profile"><span class="material-icons-round">badge</span> Meu Perfil</button>
             <button class="nav-btn" data-view="settings"><span class="material-icons-round">settings</span> Configurações</button>
-            
+
             <div style="flex: 1;"></div>
-            
-            <a href="index.html" class="nav-btn" style="color: var(--text-muted);">
+
+            <a href="index.html" class="nav-btn" style="color: var(--text-secondary);">
                 <span class="material-icons-round">arrow_back</span> Voltar ao App
             </a>
         </nav>
@@ -38,8 +43,8 @@
             <section id="view-dashboard" class="admin-view active">
                 <header class="header-dash">
                     <div>
-                        <h1 style="margin: 0; font-size: 1.8rem;">Monitoramento de Segurança</h1>
-                        <small style="color: var(--text-muted);">Visão em tempo real da equipe e operações</small>
+                        <h1 style="margin: 0; font-size: 1.5rem;">Visão geral</h1>
+                        <small style="color: var(--text-muted);">Atividade da equipe em tempo real</small>
                     </div>
 
                     <div style="display: flex; gap: 12px; align-items: center;">
@@ -66,33 +71,29 @@
                             <span class="material-icons-round" style="font-size: 16px; vertical-align: middle;">refresh</span>
                         </button>
 
-                        <div class="user-badge" style="margin: 0; background: transparent; padding: 0; border: none;">
-                            <img id="admin-photo" src="" style="width: 40px; height: 40px; border-radius: 50%; cursor: pointer; border: 2px solid var(--glass-border);" title="Ir para Meu Perfil">
+                        <div class="user-badge" id="btn-open-profile" style="margin: 0; background: transparent; padding: 0; border: none; cursor: pointer;">
+                            <img id="admin-photo" src="https://ui-avatars.com/api/?background=333&color=fff" style="width: 40px; height: 40px; border-radius: 50%; cursor: pointer; border: 2px solid var(--glass-border);" title="Ir para Meu Perfil">
                         </div>
                     </div>
                 </header>
 
                 <div class="kpi-grid">
-                    <div class="kpi-card danger">
-                        <span class="material-icons-round kpi-bg-icon">warning_amber</span>
+                    <div class="kpi-stat danger">
                         <span class="kpi-label">Incidentes Críticos</span>
                         <span class="kpi-value" id="kpi-alerts">0</span>
                         <div class="kpi-trend"><span class="material-icons-round" style="font-size: 16px;">trending_up</span><span id="kpi-alerts-trend">--</span></div>
                     </div>
-                    <div class="kpi-card warning">
-                        <span class="material-icons-round kpi-bg-icon">visibility</span>
+                    <div class="kpi-stat warning">
                         <span class="kpi-label">Microssonos</span>
                         <span class="kpi-value" id="kpi-microsleeps">0</span>
                         <div class="kpi-trend"><span class="material-icons-round" style="font-size: 16px;">remove</span><span>Estável</span></div>
                     </div>
-                    <div class="kpi-card safe">
-                        <span class="material-icons-round kpi-bg-icon">shield</span>
+                    <div class="kpi-stat safe">
                         <span class="kpi-label">Equipe Ativa</span>
                         <span class="kpi-value" id="kpi-active-users">--</span>
                         <div class="kpi-trend"><span class="material-icons-round" style="font-size: 16px;">person</span><span id="kpi-active-text">Monitorando</span></div>
                     </div>
-                    <div class="kpi-card info">
-                        <span class="material-icons-round kpi-bg-icon">restaurant_menu</span>
+                    <div class="kpi-stat info">
                         <span class="kpi-label">Pausas de Almoço</span>
                         <span class="kpi-value" id="kpi-lunches">0</span>
                         <div class="kpi-trend"><span class="material-icons-round" style="font-size: 16px;">schedule</span><span>Hoje</span></div>
@@ -102,11 +103,11 @@
                 <div class="charts-grid">
                     <div class="chart-box">
                         <div class="chart-header"><span class="chart-title">Distribuição de Fadiga (Por Hora)</span></div>
-                        <canvas id="fatigueChart"></canvas>
+                        <div class="chart-canvas-wrap"><canvas id="fatigueChart"></canvas></div>
                     </div>
                     <div class="chart-box">
                         <div class="chart-header"><span class="chart-title">Tipos de Ocorrência</span></div>
-                        <canvas id="typeChart"></canvas>
+                        <div class="chart-canvas-wrap"><canvas id="typeChart"></canvas></div>
                     </div>
                 </div>
 
@@ -128,22 +129,24 @@
 
             <section id="view-team" class="admin-view">
                 <header class="header-dash">
-                    <h1>Gestão de Equipe</h1>
-                    <button id="btn-add-member" class="btn-primary" style="padding: 10px 20px; font-size: 0.9rem;">+ Adicionar Membro</button>
+                    <h1 style="font-size: 1.5rem;">Equipe</h1>
+                    <button id="btn-add-member" class="btn-primary" style="padding: 10px 18px; font-size: 0.875rem;"><span class="material-icons-round" style="font-size: 18px;">add</span> Adicionar membro</button>
                 </header>
-                <div class="team-grid" id="team-grid-container" style="display: block; height: calc(100vh - 140px);"></div>
+                <div class="team-grid" id="team-grid-container"></div>
             </section>
 
             <section id="view-reports" class="admin-view">
                 <header class="header-dash">
-                    <h1>Relatório geral de fadigas</h1>
-                    <small style="color: var(--text-muted);">Análise de risco por colaborador e horário</small>
+                    <div>
+                        <h1 style="font-size: 1.5rem;">Relatórios</h1>
+                        <small style="color: var(--text-muted);">Risco por colaborador e horário</small>
+                    </div>
                 </header>
 
-                <div class="charts-grid" style="min-height: auto;">
+                <div class="charts-grid">
                     <div class="chart-box" style="flex: 1;">
                         <div class="chart-header"><span class="chart-title">Ranking (Top 5)</span></div>
-                        <canvas id="rankingChart" style="max-height: 250px;"></canvas>
+                        <div class="chart-canvas-wrap"><canvas id="rankingChart"></canvas></div>
                     </div>
                 </div>
 
@@ -168,64 +171,47 @@
                 </div>
             </section>
 
-            <section id="view-profile" class="admin-view">
-                <header class="header-dash"><h1>Meu Perfil</h1></header>
-                
-                <div class="logs-table-container"> 
-                    <div class="profile-container">
-                        <div class="avatar-wrapper">
-                            <img id="admin-profile-preview" src="" class="profile-avatar-large">
-                            <div class="avatar-edit-icon"><span class="material-icons-round" style="font-size: 16px;">edit</span></div>
-                        </div>
-
-                        <form id="admin-form-profile" class="profile-form">
-                            <div class="form-group">
-                                <label><span class="material-icons-round" style="font-size: 16px;">badge</span> Nome Completo</label>
-                                <input type="text" id="admin-profile-name" class="glass-input" required>
-                            </div>
-
-                            <div class="form-group">
-                                <label><span class="material-icons-round" style="font-size: 16px;">image</span> URL da Foto</label>
-                                <input type="url" id="admin-profile-photo" class="glass-input" placeholder="https://...">
-                            </div>
-
-                            <div class="form-group">
-                                <label><span class="material-icons-round" style="font-size: 16px;">email</span> Email (Fixo)</label>
-                                <input type="text" id="admin-profile-email" class="glass-input readonly-field" readonly>
-                            </div>
-                            
-                            <div class="form-group">
-                                <label><span class="material-icons-round" style="font-size: 16px;">security</span> Função</label>
-                                <input type="text" id="admin-profile-role" class="glass-input readonly-field" readonly>
-                            </div>
-
-                            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 15px;">
-                                Salvar Alterações
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </section>
-
             <section id="view-settings" class="admin-view">
-                <header class="header-dash"><h1>Configurações Globais</h1></header>
-                <div class="logs-table-container settings-section">
-                    <div class="setting-item">
-                        <div><h3 style="margin: 0 0 5px 0;">Modo Estrito</h3><small style="color: var(--text-muted);">Reduz tolerância para piscadas em 20%</small></div>
-                        <label class="toggle-switch"><input type="checkbox"><span class="slider"></span></label>
-                    </div>
-                    <div class="setting-item">
-                        <div><h3 style="margin: 0 0 5px 0;">Alertas Sonoros Globais</h3><small style="color: var(--text-muted);">Força som em todos os dispositivos da equipe</small></div>
-                        <label class="toggle-switch"><input type="checkbox" checked><span class="slider"></span></label>
-                    </div>
-                    <div class="setting-item">
+                <header class="header-dash">
                     <div>
-                        <h3 style="margin: 0 0 5px 0;">Senha de Calibração</h3>
-                        <small style="color: var(--text-muted);">Senha necessária para liberar os sliders no monitoramento</small>
+                        <h1 style="font-size: 1.5rem;">Configurações</h1>
+                        <small style="color: var(--text-muted);">Preferências do painel e regras de monitoramento da equipe</small>
                     </div>
-                        <div style="display: flex; gap: 10px; align-items: center;">
-                            <input type="password" id="input-global-pass" class="glass-input" style="width: 120px; text-align: center;" placeholder="****">
-                            <button id="btn-save-global-pass" class="btn-primary" style="padding: 8px 15px; font-size: 0.8rem;">Definir</button>
+                </header>
+
+                <div class="settings-section">
+                    <span class="settings-group-label">Aparência</span>
+                    <div class="settings-card">
+                        <div class="setting-item">
+                            <div class="setting-icon"><span class="material-icons-round">contrast</span></div>
+                            <div class="setting-copy"><h3>Tema claro</h3><small>Troca o painel para um tema com fundo claro</small></div>
+                            <label class="toggle-switch"><input type="checkbox" id="toggle-light-theme"><span class="slider"></span></label>
+                        </div>
+                    </div>
+
+                    <span class="settings-group-label">Monitoramento</span>
+                    <div class="settings-card">
+                        <div class="setting-item">
+                            <div class="setting-icon"><span class="material-icons-round">visibility</span></div>
+                            <div class="setting-copy"><h3>Modo estrito</h3><small>Reduz em 20% a tolerância para piscadas</small></div>
+                            <label class="toggle-switch"><input type="checkbox"><span class="slider"></span></label>
+                        </div>
+                        <div class="setting-item">
+                            <div class="setting-icon"><span class="material-icons-round">volume_up</span></div>
+                            <div class="setting-copy"><h3>Alertas sonoros globais</h3><small>Ativa som em todos os dispositivos da equipe</small></div>
+                            <label class="toggle-switch"><input type="checkbox" checked><span class="slider"></span></label>
+                        </div>
+                    </div>
+
+                    <span class="settings-group-label">Segurança</span>
+                    <div class="settings-card">
+                        <div class="setting-item">
+                            <div class="setting-icon"><span class="material-icons-round">password</span></div>
+                            <div class="setting-copy"><h3>Senha de calibração</h3><small>Necessária para liberar os sliders no monitoramento</small></div>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <input type="password" id="input-global-pass" class="glass-input" style="width: 120px; text-align: center;" placeholder="****">
+                                <button id="btn-save-global-pass" class="btn-primary" style="padding: 8px 15px; font-size: 0.8rem;">Definir</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -234,14 +220,13 @@
         </main>
     </div>
 
-    <div id="add-member-modal" class="modal hidden">
-        <div class="modal-content glass-panel" style="padding: 40px; width: 450px; border-radius: 28px !important;">
-            <span class="close-btn" id="close-add-member" style="top: 30px; right: 30px;">&times;</span>
-            
-            <div style="text-align: center; margin-bottom: 30px;">
-                <div class="wizard-image" style="margin-bottom: 15px;"><span class="material-icons-round">person_add</span></div>
-                <h2 style="color: #fff; margin: 0; font-size: 1.6rem; letter-spacing: -0.5px;">Gerar Convite</h2>
-                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 5px;">Novos membros terão acesso via link único.</p>
+    <div id="add-member-modal" class="modal drawer-right hidden">
+        <div class="modal-content" style="padding: 32px;">
+            <span class="close-btn" id="close-add-member" style="top: 24px; right: 24px;">&times;</span>
+
+            <div style="margin-bottom: 24px;">
+                <h2 style="color: var(--text-primary); margin: 0; font-size: 1.25rem; font-weight: 700;">Adicionar membro</h2>
+                <p style="color: var(--text-secondary); font-size: 0.85rem; margin-top: 6px;">Gere um link de convite para dar acesso a um novo colaborador.</p>
             </div>
 
             <form id="form-create-invite" style="display: flex; flex-direction: column; gap: 20px;">
@@ -264,39 +249,36 @@
                     </div>
                 </div>
 
-                <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 10px; height: 55px; border-radius: 16px;">
-                    Gerar Link de Convite
+                <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 10px; height: 46px;">
+                    Gerar link de convite
                 </button>
             </form>
         </div>
     </div>
 
     <div id="invite-result-modal" class="modal hidden">
-        <div class="modal-content glass-panel" style="padding: 40px; width: 500px;">
+        <div class="modal-content" style="padding: 32px; width: 460px;">
             <span class="close-btn" id="close-invite-result">&times;</span>
-            
-            <div style="text-align: center; margin-bottom: 25px;">
-                <div class="wizard-image" style="background: rgba(50, 215, 75, 0.1); box-shadow: 0 0 30px rgba(50, 215, 75, 0.2);">
-                    <span class="material-icons-round" style="color: var(--safe);">check_circle</span>
-                </div>
-                <h2 style="color: #fff; margin: 10px 0 0 0;">Convite Pronto!</h2>
+
+            <div style="margin-bottom: 22px;">
+                <h2 style="color: var(--text-primary); margin: 0; font-size: 1.15rem; font-weight: 700;">Convite criado</h2>
             </div>
 
-            <div class="form-group" style="margin-bottom: 20px;">
-                <label style="font-size: 0.7rem; opacity: 0.6;">LINK DE CADASTRO</label>
+            <div class="form-group" style="margin-bottom: 18px;">
+                <label style="font-size: 0.7rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em;">Link de cadastro</label>
                 <div style="display: flex; gap: 10px; margin-top: 8px;">
-                    <input type="text" id="result-link" class="glass-input" readonly style="flex: 1; color: var(--primary); font-family: monospace; font-size: 0.8rem;">
+                    <input type="text" id="result-link" class="glass-input" readonly style="flex: 1; color: var(--accent); font-family: monospace; font-size: 0.8rem;">
                     <button class="btn-secondary" id="btn-copy-link" style="padding: 0 15px;"><span class="material-icons-round">content_copy</span></button>
                 </div>
             </div>
 
-            <div class="form-group" style="margin-bottom: 30px;">
-                <label style="font-size: 0.7rem; opacity: 0.6;">PREVIEW DA MENSAGEM</label>
-                <div id="result-message" style="background: rgba(0,0,0,0.2); padding: 15px; border-radius: 12px; font-size: 0.8rem; color: #bbb; border: 1px solid var(--glass-border); margin-top: 8px; white-space: pre-wrap; max-height: 120px; overflow-y: auto;"></div>
+            <div class="form-group" style="margin-bottom: 24px;">
+                <label style="font-size: 0.7rem; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.04em;">Mensagem</label>
+                <div id="result-message" style="background: var(--surface-2); padding: 14px; border-radius: 8px; font-size: 0.8rem; color: var(--text-secondary); border: 1px solid var(--border-subtle); margin-top: 8px; white-space: pre-wrap; max-height: 120px; overflow-y: auto;"></div>
             </div>
 
             <div style="display: flex; gap: 12px;">
-                <button class="btn-secondary" id="btn-copy-msg" style="flex: 1; font-size: 0.85rem;">Copiar Texto</button>
+                <button class="btn-secondary" id="btn-copy-msg" style="flex: 1; font-size: 0.85rem;">Copiar texto</button>
                 <button class="btn-primary" id="btn-share-wpp" style="flex: 1; background: #25D366; color: #fff; border: none; font-size: 0.85rem;">
                     <i class="fa-brands fa-whatsapp"></i> WhatsApp
                 </button>
@@ -305,10 +287,10 @@
     </div>
 
     <div id="confirm-action-modal" class="modal hidden">
-        <div class="modal-content glass-panel" style="max-width: 400px; padding: 30px; text-align: center;">
-            <span class="material-icons-round" id="confirm-icon" style="font-size: 4rem; color: var(--danger); margin-bottom: 20px;">help_outline</span>
-            <h2 id="confirm-title" style="color: #fff; margin-bottom: 10px;">Tem certeza?</h2>
-            <p id="confirm-desc" style="color: var(--text-muted); margin-bottom: 30px; line-height: 1.5;"></p>
+        <div class="modal-content" style="max-width: 380px; padding: 28px; text-align: center;">
+            <span class="material-icons-round" id="confirm-icon" style="font-size: 2.75rem; color: var(--danger); margin-bottom: 16px;">help_outline</span>
+            <h2 id="confirm-title" style="color: var(--text-primary); font-size: 1.1rem; margin-bottom: 8px;">Tem certeza?</h2>
+            <p id="confirm-desc" style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 24px; line-height: 1.5;"></p>
             <div style="display: flex; gap: 15px; justify-content: center;">
                 <button class="btn-secondary" id="btn-confirm-cancel" style="flex: 1;">Cancelar</button>
                 <button class="btn-primary" id="btn-confirm-execute" style="flex: 1; background: var(--danger); color: #fff; border: none; justify-content: center;">Confirmar</button>
@@ -317,9 +299,9 @@
     </div>
 
     <div id="role-change-modal" class="modal hidden">
-        <div class="modal-content glass-panel" style="max-width: 400px; padding: 30px;">
-            <h2 style="color: var(--primary); margin-top: 0; margin-bottom: 10px;">Alterar Função</h2>
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 20px;">Selecione o novo nível de acesso para o colaborador.</p>
+        <div class="modal-content" style="max-width: 380px; padding: 28px;">
+            <h2 style="color: var(--text-primary); font-size: 1.1rem; margin-top: 0; margin-bottom: 8px;">Alterar função</h2>
+            <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 20px;">Escolha o novo nível de acesso do colaborador.</p>
             
             <div class="form-group" style="margin-bottom: 25px;">
                 <label>Nova Função</label>
@@ -338,21 +320,62 @@
     </div>
 
     <div id="heatmap-details-modal" class="modal hidden">
-        <div class="modal-content glass-panel" style="width: 500px; max-height: 80vh; display: flex; flex-direction: column; padding: 0;">
-            
-            <div style="padding: 20px; border-bottom: 1px solid var(--glass-border); display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02);">
+        <div class="modal-content" style="width: 480px; max-height: 80vh; display: flex; flex-direction: column; padding: 0;">
+
+            <div style="padding: 18px 20px; border-bottom: 1px solid var(--border-subtle); display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                    <h3 id="hm-modal-title" style="margin: 0; color: #fff;">Detalhes</h3>
-                    <small id="hm-modal-subtitle" style="color: var(--text-muted);">--</small>
+                    <h3 id="hm-modal-title" style="margin: 0; color: var(--text-primary); font-size: 1rem;">Detalhes</h3>
+                    <small id="hm-modal-subtitle" style="color: var(--text-secondary);">--</small>
                 </div>
-                <span class="close-btn" id="close-hm-modal" style="cursor: pointer; color: #fff; font-size: 1.5rem;">&times;</span>
+                <span class="close-btn" id="close-hm-modal" style="cursor: pointer; color: var(--text-secondary); font-size: 1.4rem;">&times;</span>
             </div>
 
             <div id="hm-logs-list" style="padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px;">
                 </div>
 
-            <div style="padding: 20px; border-top: 1px solid var(--glass-border); text-align: right;">
+            <div style="padding: 16px 20px; border-top: 1px solid var(--border-subtle); text-align: right;">
                 <button class="btn-secondary" id="btn-close-hm-footer">Fechar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="admin-profile-modal" class="modal hidden">
+        <div class="modal-content" style="width: 460px; padding: 36px;">
+            <span class="close-btn" id="close-profile-modal" style="top: 24px; right: 24px;">&times;</span>
+
+            <h2 style="color: var(--text-primary); margin: 0 0 24px 0; font-size: 1.15rem; font-weight: 700;">Meu perfil</h2>
+
+            <div class="profile-container">
+                <div class="avatar-wrapper">
+                    <img id="admin-profile-preview" src="" class="profile-avatar-large">
+                    <div class="avatar-edit-icon"><span class="material-icons-round" style="font-size: 16px;">edit</span></div>
+                </div>
+
+                <form id="admin-form-profile" class="profile-form">
+                    <div class="form-group">
+                        <label><span class="material-icons-round" style="font-size: 16px;">badge</span> Nome completo</label>
+                        <input type="text" id="admin-profile-name" class="glass-input" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label><span class="material-icons-round" style="font-size: 16px;">image</span> URL da foto</label>
+                        <input type="url" id="admin-profile-photo" class="glass-input" placeholder="https://...">
+                    </div>
+
+                    <div class="form-group">
+                        <label><span class="material-icons-round" style="font-size: 16px;">email</span> E-mail</label>
+                        <input type="text" id="admin-profile-email" class="glass-input readonly-field" readonly>
+                    </div>
+
+                    <div class="form-group">
+                        <label><span class="material-icons-round" style="font-size: 16px;">security</span> Função</label>
+                        <input type="text" id="admin-profile-role" class="glass-input readonly-field" readonly>
+                    </div>
+
+                    <button type="submit" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 15px;">
+                        Salvar alterações
+                    </button>
+                </form>
             </div>
         </div>
     </div>

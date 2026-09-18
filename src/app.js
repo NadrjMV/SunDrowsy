@@ -51,8 +51,27 @@ const calibProgress = document.getElementById('calib-progress');
 const audioMgr = new AudioManager('./alert.mp3');
 let detector = null;
 let faceMesh = null;
-let tickerWorker = null; 
-let isProcessingFrame = false; 
+let tickerWorker = null;
+let isProcessingFrame = false;
+
+// --- PERFIS DE DESEMPENHO ---
+// A rede neural (FaceMesh) é o gargalo real de CPU: quanto menor a imagem e a
+// frequência de análise, menos custo por segundo. Sonolência não é um evento de
+// milissegundos, então rodar mais devagar não compromete a detecção.
+const PERFORMANCE_PROFILES = {
+    economia:    { label: 'Economia',        fps: 8,  width: 480,  height: 360, drawMesh: false },
+    equilibrado: { label: 'Equilibrado',     fps: 15, width: 768,  height: 432, drawMesh: true },
+    precisao:    { label: 'Precisão máxima', fps: 20, width: 1080, height: 720, drawMesh: true },
+};
+const PERF_STORAGE_KEY = 'sundrowsy_perf_profile';
+
+function getSavedPerformanceProfileKey() {
+    const saved = localStorage.getItem(PERF_STORAGE_KEY);
+    return PERFORMANCE_PROFILES[saved] ? saved : 'equilibrado';
+}
+
+let currentPerfProfileKey = getSavedPerformanceProfileKey();
+window.currentPerfProfile = PERFORMANCE_PROFILES[currentPerfProfileKey];
 
 // PERFIL ELEMENTS
 const btnOpenProfile = document.getElementById('btn-open-profile');
@@ -470,13 +489,12 @@ btnTutorialOpen.addEventListener('click', () => {
 });
 const roleSelector = document.getElementById('role-selector');
 if(roleSelector) {
+    // Este seletor define apenas o modo de operação do detector (usado como rótulo nos logs).
+    // NUNCA deve gravar em `users/{uid}.role` — esse campo é a permissão real da conta
+    // (OWNER/ADMIN/VIGIA) usada pelo admin, e sobrescrevê-lo aqui já derrubou o acesso de owners.
     roleSelector.addEventListener('change', (e) => {
         if (detector) {
             detector.setRole(e.target.value);
-            document.getElementById('user-role-display').innerText = e.target.value;
-            if (auth.currentUser) {
-                db.collection('users').doc(auth.currentUser.uid).set({ role: e.target.value }, { merge: true });
-            }
         }
     });
 }
@@ -499,17 +517,17 @@ async function initSystem() {
     faceMesh.onResults(onResults);
 
     try {
-            // Reduzindo a resolução para 640x360 (ainda 16:9) para aliviar a carga da GPU/WASM.
-            // O uso de 'max' é mais seguro que 'ideal' para não forçar cortes se o browser não suportar.
+            // Resolução da câmera segue o perfil de desempenho ativo (ver PERFORMANCE_PROFILES).
+            // 'ideal' pede essa resolução sem travar se o dispositivo não suportar exatamente.
+            const profile = PERFORMANCE_PROFILES[currentPerfProfileKey];
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { 
-                    width: { max: 1920, ideal: 1080 }, 
-                    height: { max: 1080, ideal: 720 }, 
-                    facingMode: "user" 
+                video: {
+                    width: { ideal: profile.width },
+                    height: { ideal: profile.height },
+                    facingMode: "user"
                 }
             });
             videoElement.srcObject = stream;
-        videoElement.srcObject = stream;
         videoElement.onloadedmetadata = () => {
             // FIX: Remove display:none e usa opacity 0 para garantir que o renderizador
             // processe os frames, permitindo que o drawImage do snapshot funcione.
@@ -545,6 +563,43 @@ if (debugSlider) {
         
         debugThreshVal.innerText = newVal.toFixed(2);
     });
+}
+
+// Troca o perfil de desempenho em tempo real (sem resetar calibração/estado do detector):
+// reinicia o worker de detecção com o novo FPS e troca a resolução da câmera.
+async function applyPerformanceProfile(key) {
+    if (!PERFORMANCE_PROFILES[key]) return;
+    currentPerfProfileKey = key;
+    window.currentPerfProfile = PERFORMANCE_PROFILES[key];
+    localStorage.setItem(PERF_STORAGE_KEY, key);
+
+    if (!detector || !videoElement.srcObject) return; // sistema ainda não iniciado, o perfil só se aplica ao iniciar
+
+    const profile = PERFORMANCE_PROFILES[key];
+
+    if (detectionWorker) {
+        detectionWorker.terminate();
+        detectionWorker = null;
+    }
+    startDetectionLoop();
+
+    try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: profile.width }, height: { ideal: profile.height }, facingMode: "user" }
+        });
+        const oldStream = videoElement.srcObject;
+        videoElement.srcObject = newStream;
+        if (oldStream) oldStream.getTracks().forEach(track => track.stop());
+    } catch (err) {
+        console.error("Erro ao trocar resolução da câmera para o novo perfil:", err);
+    }
+}
+window.applyPerformanceProfile = applyPerformanceProfile;
+
+const perfModeSelector = document.getElementById('performance-mode');
+if (perfModeSelector) {
+    perfModeSelector.value = currentPerfProfileKey;
+    perfModeSelector.addEventListener('change', (e) => applyPerformanceProfile(e.target.value));
 }
 
 function stopSystem() {
@@ -593,7 +648,9 @@ function onResults(results) {
         detector.resetDetectionTimer();
 
         // --- DESENHO DA MÁSCARA ---
-        if (!document.hidden) {
+        // No perfil "Economia" pulamos esse desenho: é puramente visual (não afeta a
+        // detecção) e o modo holográfico em especial é caro (centenas de segmentos).
+        if (!document.hidden && window.currentPerfProfile.drawMesh) {
             if (window.showCameraFeed) {
                 // MODO CÂMERA LIGADA:
                 drawConnectors(canvasCtx, landmarks, FACEMESH_CONTOURS, {color: '#FFD028', lineWidth: 1.5});
@@ -882,18 +939,20 @@ function hasLunchToday() {
     return lastLunch === today;
 }
 
-const DETECTION_FPS = 20;
-
 function startDetectionLoop() {
     if (detectionWorker) return; // Já tá rodando
 
+    const fps = PERFORMANCE_PROFILES[currentPerfProfileKey].fps;
+    const intervalMs = Math.round(1000 / fps);
+
     // Cria um script de Worker em tempo real (Blob)
+    // O intervalo roda dentro do Worker (não no thread principal) porque o navegador
+    // pausa/limita setInterval de background na aba principal, mas não dentro de um Worker —
+    // é assim que o app continua detectando mesmo com a janela minimizada/em segundo plano.
     const workerBlob = new Blob([`
         self.onmessage = function(e) {
             if (e.data === "start") {
-                // Roda a 20 FPS (50ms) cravado, sem choro do navegador
-                // É CRÍTICO que ele chame 'tick' mesmo em background, para forçar o faceMesh.send
-                setInterval(() => { postMessage("tick"); }, 50);
+                setInterval(() => { postMessage("tick"); }, ${intervalMs});
             }
         };
     `], { type: "text/javascript" });

@@ -406,13 +406,16 @@ export class DrowsinessDetector {
         const levelEl = document.getElementById('fatigue-level');
         if(counterEl) counterEl.innerText = `P: ${blink} | B: ${yawn}`;
         if(levelEl) {
+            let level = 'safe';
             if (blink >= this.config.REQUIRED_LONG_BLINKS || yawn >= this.config.REQUIRED_YAWNS) {
-                levelEl.innerText = "FADIGA"; levelEl.className = "value danger";
+                levelEl.innerText = "FADIGA"; levelEl.className = "value danger"; level = 'danger';
             } else if (blink > 0 || yawn > 0) {
-                levelEl.innerText = "ATENÇÃO"; levelEl.className = "value warning"; 
+                levelEl.innerText = "ATENÇÃO"; levelEl.className = "value warning"; level = 'warning';
             } else {
                 levelEl.innerText = "ATIVO"; levelEl.className = "value safe";
             }
+            // No app nativo (Electron), replica o status pro dot flutuante. Sem efeito no navegador.
+            window.electronAPI?.reportStatus({ level, label: levelEl.innerText });
         }
     }
 }

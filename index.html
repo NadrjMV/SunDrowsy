@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SunDrowsy | Tactical Safety</title>
-    
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="assets/favicon-192.png">
+    <link rel="apple-touch-icon" href="assets/favicon-180.png">
+
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Round" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
@@ -24,7 +27,7 @@
 
     <section id="login-view" class="view active">
         <div class="login-card">
-            <h1 class="brand-title">Sun<span>Drowsy</span></h1>
+            <img src="assets/sundrowsy-full-logo.png" alt="SunDrowsy" class="brand-logo-full">
             <p class="login-desc">Sistema Neural de Prevenção à Fadiga</p>
             
             <form id="form-email-login" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px;">
@@ -56,7 +59,10 @@
     <section id="app-view" class="view hidden">
         
         <nav class="sidebar">
-            <div class="brand-title" style="font-size: 1.5rem; text-align: left; margin-bottom: 1.5rem;">Sun<span>Drowsy</span></div>
+            <div class="brand-lockup">
+                <img src="assets/sundrowsy-logo.png" alt="" class="brand-mark">
+                <span class="brand-wordmark">Sun<span>Drowsy</span></span>
+            </div>
 
             <div class="user-badge" id="btn-open-profile" title="Editar Perfil">
                 <img id="user-photo" src="" alt="User">
@@ -127,7 +133,16 @@
                     <option value="VIGIA">Vigia / Segurança</option>
                 </select>
             </div>
-            
+
+            <div class="profile-selector" style="margin-bottom: 10px;">
+                <small style="color: var(--text-muted); font-size: 0.7rem; margin-bottom: 4px; display: block;" title="Ajusta resolução da câmera e frequência de análise para aliviar o uso de CPU">Desempenho:</small>
+                <select id="performance-mode" class="glass-input" style="width: 100%; padding: 6px 10px; font-size: 0.8rem;">
+                    <option value="economia">Economia (menos CPU)</option>
+                    <option value="equilibrado">Equilibrado</option>
+                    <option value="precisao">Precisão máxima</option>
+                </select>
+            </div>
+
             <hr style="margin: 5px 0 10px 0;">
             <button class="nav-btn logout" id="btn-logout" style="padding: 10px;"><span class="material-icons-round" style="font-size: 1.2rem;">power_settings_new</span> Sair</button>
 

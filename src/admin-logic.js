@@ -2,6 +2,23 @@ import { auth, db, googleProvider } from './firebase-config.js';
 // Import da config nova
 import { APP_CONFIG } from './config.js';
 
+// --- TEMA CLARO/ESCURO (Admin) ---
+const THEME_STORAGE_KEY = 'sundrowsy_admin_theme';
+(function initTheme() {
+    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    if (saved === 'light') document.body.setAttribute('data-theme', 'light');
+})();
+document.addEventListener('DOMContentLoaded', () => {
+    const themeToggle = document.getElementById('toggle-light-theme');
+    if (!themeToggle) return;
+    themeToggle.checked = document.body.getAttribute('data-theme') === 'light';
+    themeToggle.addEventListener('change', () => {
+        const isLight = themeToggle.checked;
+        document.body.setAttribute('data-theme', isLight ? 'light' : 'dark');
+        localStorage.setItem(THEME_STORAGE_KEY, isLight ? 'light' : 'dark');
+    });
+});
+
 // ELEMENTOS KPI
 const kpiAlerts = document.getElementById('kpi-alerts');
 const kpiMicrosleeps = document.getElementById('kpi-microsleeps');
@@ -103,6 +120,10 @@ auth.onAuthStateChanged(async (user) => {
         window.currentAdminRole = role;
         window.isSystemOwner = (role === 'OWNER');
 
+        // Foto do admin no header
+        const headerPhoto = document.getElementById('admin-photo');
+        if (headerPhoto) headerPhoto.src = user.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff';
+
         // Chamadas iniciais
         populateUserFilter(); // Popula os nomes no filtro
         setupRealtimeDashboard('today');
@@ -167,16 +188,31 @@ navBtns.forEach(btn => {
         navBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         const viewId = btn.getAttribute('data-view');
-        
-        // Se clicar em Perfil, carrega os dados
-        if(viewId === 'profile') {
-            loadAdminProfile();
-        }
+
         views.forEach(v => v.classList.remove('active'));
         const view = document.getElementById(`view-${viewId}`);
         if(view) view.classList.add('active');
     });
 });
+
+// --- MODAL: MEU PERFIL ---
+const profileModal = document.getElementById('admin-profile-modal');
+const btnOpenProfile = document.getElementById('btn-open-profile');
+const closeProfileModal = document.getElementById('close-profile-modal');
+
+if (btnOpenProfile && profileModal) {
+    btnOpenProfile.addEventListener('click', () => {
+        loadAdminProfile();
+        profileModal.classList.remove('hidden');
+        setTimeout(() => profileModal.style.opacity = '1', 10);
+    });
+}
+if (closeProfileModal && profileModal) {
+    closeProfileModal.addEventListener('click', () => {
+        profileModal.style.opacity = '0';
+        setTimeout(() => profileModal.classList.add('hidden'), 300);
+    });
+}
 
 // --- LÓGICA DE PERFIL (ADMIN) ---
 
@@ -227,23 +263,7 @@ if(adminFormProfile) {
 
             // 3. Atualiza header do admin
             const adminHeaderPhoto = document.getElementById('admin-photo');
-            if (adminHeaderPhoto) {
-                adminHeaderPhoto.style.cursor = 'pointer'; 
-                adminHeaderPhoto.title = "Ir para Meu Perfil"; 
-
-                adminHeaderPhoto.addEventListener('click', () => {
-                    navBtns.forEach(b => b.classList.remove('active'));
-                    const profileBtn = document.querySelector('.nav-btn[data-view="profile"]');
-                    if(profileBtn) profileBtn.classList.add('active');
-                    views.forEach(v => v.classList.remove('active'));
-                    const profileView = document.getElementById('view-profile');
-                    if(profileView) {
-                        profileView.classList.add('active');
-                        loadAdminProfile();
-                    }
-                });
-            }
-            if(adminHeaderPhoto) adminHeaderPhoto.src = newPhoto;
+            if (adminHeaderPhoto) adminHeaderPhoto.src = newPhoto || 'https://ui-avatars.com/api/?background=333&color=fff';
 
             alert("Perfil de Administrador atualizado!");
             
@@ -1105,7 +1125,7 @@ function renderTeamList(users) {
                 <img src="${photo}" style="width: 42px; height: 42px; border-radius: 50%; object-fit: cover; border: 2px solid rgba(255,255,255,0.1);">
                 <div style="display: flex; flex-direction: column;">
                     <div style="display: flex; align-items: center;">
-                        <span style="font-weight: 600; font-size: 0.95rem; color: #fff;">${user.displayName}</span>
+                        <span style="font-weight: 600; font-size: 0.95rem; color: var(--text-primary);">${user.displayName}</span>
                         ${statusTag}
                     </div>
                     <span style="font-size: 0.75rem; color: var(--text-muted);">${user.email || '---'}</span>
@@ -1121,7 +1141,7 @@ function renderTeamList(users) {
                    class="btn-icon-secondary team-actions-btn"
                    data-uid="${user.uid}"
                    data-name="${(user.displayName || '').replace(/"/g,'&quot;')}"
-                   style="width:36px; height:36px; border-radius:8px; background:rgba(255,255,255,0.05); color:#fff; border:1px solid rgba(255,255,255,0.1); cursor:pointer; display:flex; align-items:center; justify-content:center;"
+                   style="width:36px; height:36px; border-radius:8px; background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border-subtle); cursor:pointer; display:flex; align-items:center; justify-content:center;"
                    title="Ações"
                  >
                     <span class="material-icons-round" style="font-size: 20px;">more_horiz</span>
@@ -1310,7 +1330,7 @@ function renderGroupedTable(logs) {
         const finalDisplayName = userData ? userData.displayName : (lastLog.userName || 'Usuário Desconhecido');
         const finalRole = userData ? userData.role : (lastLog.role || 'Vigia');
 
-        let summaryText = isMultiple ? `<span style="color: #fff; font-weight: bold;">${group.items.length} Registros</span>` : (lastLog.reason || "Evento");
+        let summaryText = isMultiple ? `<span style="color: var(--text-primary); font-weight: bold;">${group.items.length} Registros</span>` : (lastLog.reason || "Evento");
         let badgeClass = (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') ? 'warning' : 'bg-danger';
         let badgeHtml = `<span class="badge ${badgeClass}" style="${badgeClass === 'warning' ? 'background: rgba(255, 149, 0, 0.2); color: #FF9500;' : ''}">${summaryText}</span>`;
 
@@ -1383,7 +1403,7 @@ function renderGroupedTable(logs) {
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
                         <div style="display:flex; gap: 10px; align-items: center;">
                             <span style="font-family: monospace; color: var(--text-muted); font-size: 0.85rem;">${iTime}</span>
-                            ${snapshotBtn} <span style="color: #fff; font-size: 0.9rem;">${desc}</span>
+                            ${snapshotBtn} <span style="color: var(--text-primary); font-size: 0.9rem;">${desc}</span>
                         </div>
                         ${itemDelete}
                     </div>
@@ -1520,7 +1540,7 @@ function renderCharts(logs) {
                 borderWidth: 0
             }]
         },
-        options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'right', labels: { color: '#fff' } } } }
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#fff' } } } }
     });
 
     const ctxFatigue = document.getElementById('fatigueChart').getContext('2d');
@@ -1531,6 +1551,11 @@ function renderCharts(logs) {
     });
     
     if (charts.fatigue) charts.fatigue.destroy();
+
+    const fatigueGradient = ctxFatigue.createLinearGradient(0, 0, 0, 260);
+    fatigueGradient.addColorStop(0, 'rgba(255, 208, 40, 0.38)');
+    fatigueGradient.addColorStop(1, 'rgba(255, 208, 40, 0)');
+
     charts.fatigue = new Chart(ctxFatigue, {
         type: 'line',
         data: {
@@ -1539,17 +1564,46 @@ function renderCharts(logs) {
                 label: 'Alertas',
                 data: hours,
                 borderColor: '#FFD028',
-                backgroundColor: 'rgba(255, 208, 40, 0.1)',
+                backgroundColor: fatigueGradient,
+                borderWidth: 2.5,
                 fill: true,
-                tension: 0.4
+                tension: 0.42,
+                pointRadius: 0,
+                pointHoverRadius: 5,
+                pointHoverBackgroundColor: '#fff',
+                pointHoverBorderColor: '#FFD028',
+                pointHoverBorderWidth: 2
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: true,
-            aspectRatio: 2,
-            scales: { y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8E8E93' } }, x: { grid: { display: false }, ticks: { color: '#8E8E93' } } },
-            plugins: { legend: { display: false } }
+            maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: '#71717a', precision: 0, font: { size: 11 }, padding: 8 },
+                    grid: { color: 'rgba(255,255,255,0.05)' },
+                    border: { display: false }
+                },
+                x: {
+                    grid: { display: false },
+                    border: { display: false },
+                    ticks: { color: '#71717a', maxRotation: 0, autoSkip: true, maxTicksLimit: 8, font: { size: 11 } }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#1a1a1e',
+                    borderColor: 'rgba(255,255,255,0.12)',
+                    borderWidth: 1,
+                    padding: 10,
+                    displayColors: false,
+                    titleFont: { size: 12 },
+                    bodyFont: { size: 12 }
+                }
+            }
         }
     });
 }
