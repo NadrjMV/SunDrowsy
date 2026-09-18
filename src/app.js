@@ -221,6 +221,49 @@ btnReLock.addEventListener('click', () => {
     btnReLock.classList.add('hidden');
 });
 
+// --- LOG GENÉRICO DE AUDITORIA (sessão/app) ---
+// Mesma coleção "unificada" usada pelos alarmes (logs/{uid}/logs/{doc}), pra aparecer
+// junto na tabela do painel admin. Usado pra abertura/fechamento do app, login/logout
+// e tentativas de fechar sem senha.
+function logSystemEvent(uid, userName, role, type, reason) {
+    if (!uid) return;
+    db.collection('logs').doc(uid).collection('logs').add({
+        timestamp: new Date(),
+        type,
+        reason,
+        role: role || 'DESCONHECIDO',
+        userName: userName || 'Usuário',
+        uid,
+    }).catch(e => console.error(`❌ Erro ao salvar log (${type}):`, e));
+}
+
+// --- APP OBRIGATÓRIO (versão nativa/Electron) ---
+// "Sair" no menu do círculo flutuante não fecha na hora: o processo principal traz
+// essa janela pro foco e pede aqui a senha de supervisor (mesma senha da
+// calibração/perfil de desempenho). Só com a senha certa o app de fato encerra —
+// sem isso, um vigia não teria como sair do monitoramento por conta própria.
+let pendingCrashReport = null;
+
+if (window.electronAPI?.isElectron) {
+    window.electronAPI.onRequestQuit(async () => {
+        const currentUser = auth.currentUser;
+        const role = detector ? detector.config.role : null;
+        const ok = await requestAdminPassword();
+        if (ok) {
+            logSystemEvent(currentUser?.uid, currentUser?.displayName, role, 'APP_QUIT', 'Encerrado com senha de supervisor');
+            window.electronAPI.confirmQuit();
+        } else {
+            logSystemEvent(currentUser?.uid, currentUser?.displayName, role, 'APP_CLOSE_ATTEMPT_DENIED', 'Tentativa de encerrar o app sem senha correta');
+        }
+    });
+
+    // Se a execução anterior morreu sem passar pelo fluxo normal de saída
+    // (Gerenciador de Tarefas, crash, queda de energia), registra isso assim que
+    // possível — o próprio usuário logado agora pode não ser o mesmo de antes, então
+    // só grava quando o uid bater com quem realmente estava logado.
+    window.electronAPI.onCrashReport((data) => { pendingCrashReport = data; });
+}
+
 if (sessionStorage.getItem('sd_invite_token')) {
     const loginBtn = document.getElementById('btn-email-login');
 
@@ -288,14 +331,26 @@ if (inviteToken) {
 }
 
 // --- AUTH ---
+// Marca se o usuário acabou de clicar em "Entrar" — distingue um login de verdade
+// (log "LOGIN") de uma sessão retomada automaticamente ao abrir o app (log "APP_OPEN").
+let isIntentionalLogin = false;
+let hasLoggedAppOpen = false;
+
 document.getElementById('btn-google-login').addEventListener('click', () => {
+    isIntentionalLogin = true;
     auth.signInWithPopup(googleProvider).catch((error) => {
         console.error("Erro Auth:", error);
         showToast("Erro no login: " + error.message);
+        isIntentionalLogin = false;
     });
 });
 ;
 document.getElementById('btn-logout').addEventListener('click', () => {
+    const currentUser = auth.currentUser;
+    if (currentUser) {
+        logSystemEvent(currentUser.uid, currentUser.displayName, detector ? detector.config.role : null, 'LOGOUT', 'Logout manual');
+    }
+    window.electronAPI?.reportSession({ uid: null, userName: null, role: null });
     stopSystem();
     auth.signOut();
 });
@@ -370,6 +425,22 @@ auth.onAuthStateChanged(async (user) => {
 
                 // Limpa token local depois de consumir
                 sessionStorage.removeItem('sd_invite_token');
+            }
+
+            // --- AUDITORIA: LOGIN / abertura do app / relatório de fechamento indevido ---
+            window.electronAPI?.reportSession({ uid: user.uid, userName: user.displayName, role: userData.role });
+
+            if (isIntentionalLogin) {
+                logSystemEvent(user.uid, user.displayName, userData.role, 'LOGIN', 'Login realizado');
+                isIntentionalLogin = false;
+            }
+            if (!hasLoggedAppOpen) {
+                logSystemEvent(user.uid, user.displayName, userData.role, 'APP_OPEN', 'Aplicativo aberto');
+                hasLoggedAppOpen = true;
+            }
+            if (pendingCrashReport && pendingCrashReport.uid === user.uid) {
+                logSystemEvent(user.uid, user.displayName, userData.role, 'APP_KILLED_UNEXPECTEDLY', 'Encerramento anormal na execução anterior (Gerenciador de Tarefas, queda de energia ou falha do sistema)');
+                pendingCrashReport = null;
             }
 
             // Transição para LGPD ou APP
@@ -1461,26 +1532,34 @@ window.captureSnapshot = () => {
         return Promise.resolve(null);
     }
 
-    // ANTI-LAG: Usa requestIdleCallback para não bloquear a thread de detecção.
-    // O toDataURL() é síncrono e pesado — executar em idle evita travar o loop principal.
+    // Resolução reduzida: 320x240 é suficiente para identificar o operador
+    // e é ~25x mais rápido de codificar que 1080p (9x menos pixels + JPEG mais leve).
+    const SNAP_W = 320;
+    const SNAP_H = 240;
+
+    // CRÍTICO: o drawImage (captura do frame de verdade) tem que ser SÍNCRONO, agora,
+    // no exato instante em que o alarme dispara — é a prova visual de que o olho
+    // estava fechado. Adiar isso pra um requestIdleCallback (como era antes) pega o
+    // frame só quando o browser "sobra tempo", o que podia ser 1-2s depois — tempo
+    // suficiente pra pessoa já ter reaberto o olho, tornando a foto uma prova errada.
+    let tempCanvas;
+    try {
+        tempCanvas = document.createElement('canvas');
+        tempCanvas.width = SNAP_W;
+        tempCanvas.height = SNAP_H;
+        // Sem espelhamento — igual ao preview (ver onResults), orientação real.
+        tempCanvas.getContext('2d').drawImage(videoElement, 0, 0, SNAP_W, SNAP_H);
+    } catch (e) {
+        console.error("❌ Erro ao capturar o frame do snapshot:", e);
+        return Promise.resolve(null);
+    }
+
+    // Só a parte pesada (toDataURL/JPEG) é que pode esperar o idle — o pixel já foi
+    // "congelado" no canvas acima, então adiar isso não muda mais a foto.
     return new Promise((resolve) => {
-        const doCapture = () => {
+        const doEncode = () => {
             try {
-                // Resolução reduzida: 320x240 é suficiente para identificar o operador
-                // e é ~25x mais rápido de codificar que 1080p (9x menos pixels + JPEG mais leve).
-                const SNAP_W = 320;
-                const SNAP_H = 240;
-
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width  = SNAP_W;
-                tempCanvas.height = SNAP_H;
-                const tempCtx = tempCanvas.getContext('2d');
-
-                // Sem espelhamento — igual ao preview (ver onResults), orientação real.
-                tempCtx.drawImage(videoElement, 0, 0, SNAP_W, SNAP_H);
-
                 const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
-
                 if (dataUrl && dataUrl.length > 100) {
                     console.log(`📸 Snapshot capturado (${SNAP_W}x${SNAP_H} — ${Math.round(dataUrl.length/1024)}KB)`);
                     resolve(dataUrl);
@@ -1488,7 +1567,7 @@ window.captureSnapshot = () => {
                     console.warn("⚠️ Falha ao gerar snapshot.");
                     resolve(null);
                 }
-            } catch(e) {
+            } catch (e) {
                 console.error("❌ Erro no snapshot:", e);
                 resolve(null);
             }
@@ -1497,9 +1576,9 @@ window.captureSnapshot = () => {
         // requestIdleCallback: executa só quando o browser NÃO está ocupado com frames.
         // Fallback para setTimeout(0) em browsers sem suporte (Safari antigo).
         if (typeof requestIdleCallback === 'function') {
-            requestIdleCallback(doCapture, { timeout: 2000 });
+            requestIdleCallback(doEncode, { timeout: 2000 });
         } else {
-            setTimeout(doCapture, 0);
+            setTimeout(doEncode, 0);
         }
     });
 };

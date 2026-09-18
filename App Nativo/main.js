@@ -54,6 +54,49 @@ let isQuitting = false;
 let isMainWindowVisible = true;
 let lastStatus = { level: 'idle', label: 'Ocioso' };
 let volumeSnapshot = null; // guarda volume/mudo de antes do alarme, pra poder restaurar
+
+// --- ESTADO DA SESSÃO / DETECÇÃO DE FECHAMENTO INDEVIDO ---
+// App é obrigatório: um vigia não pode simplesmente encerrar o processo (Gerenciador
+// de Tarefas, etc.) sem deixar rastro. Guardamos um "batimento" num arquivo local;
+// se na próxima abertura o último batimento não tiver sido marcado como "saída
+// limpa", é sinal de que o processo morreu de forma anormal (kill/crash/queda de
+// energia) — reportamos isso pro app.js registrar no Firestore.
+const STATE_FILE = path.join(app.getPath('userData'), 'session-state.json');
+let sessionInfo = { uid: null, userName: null, role: null };
+let pendingCrashReport = null;
+let heartbeatInterval = null;
+
+function readStateFile() {
+    try {
+        return JSON.parse(fs.readFileSync(STATE_FILE, 'utf-8'));
+    } catch {
+        return null;
+    }
+}
+
+function writeStateFile(cleanExit) {
+    try {
+        fs.writeFileSync(STATE_FILE, JSON.stringify({
+            ...sessionInfo,
+            lastHeartbeat: Date.now(),
+            cleanExit,
+        }));
+    } catch (err) {
+        console.error('Não foi possível gravar o arquivo de estado:', err.message);
+    }
+}
+
+function checkPreviousSessionCrash() {
+    const previous = readStateFile();
+    if (previous && previous.cleanExit === false && previous.uid) {
+        pendingCrashReport = previous;
+    }
+}
+
+function startHeartbeat() {
+    writeStateFile(false);
+    heartbeatInterval = setInterval(() => writeStateFile(false), 20000);
+}
 // Porta FIXA (não aleatória): o Firebase Auth guarda a sessão de login por origem
 // (protocolo+host+porta). Se a porta mudasse a cada abertura do app, a "origem"
 // mudaria junto e o login salvo seria perdido toda vez — era exatamente esse o
@@ -176,11 +219,21 @@ function createDotWindow() {
             template.push({ type: 'separator' });
             template.push({
                 label: 'Reiniciar e atualizar',
-                click: () => { isQuitting = true; autoUpdater.quitAndInstall(); },
+                click: () => { writeStateFile(true); isQuitting = true; autoUpdater.quitAndInstall(); },
             });
         }
         template.push({ type: 'separator' });
-        template.push({ label: 'Sair', click: () => { isQuitting = true; app.quit(); } });
+        // "Sair" NÃO encerra direto: o app é obrigatório, então só quem souber a senha
+        // de supervisor (validada na janela principal, ver 'sundrowsy:confirm-quit')
+        // consegue de fato fechar. Isso também garante que toda saída legítima passa
+        // pela tela principal, então o vigia não tem como sair sem deixar rastro.
+        template.push({
+            label: 'Sair (requer senha de supervisor)',
+            click: () => {
+                focusMainWindow();
+                if (mainWindow) mainWindow.webContents.send('sundrowsy:request-quit');
+            },
+        });
 
         Menu.buildFromTemplate(template).popup({ window: dotWindow });
     });
@@ -208,6 +261,19 @@ if (!gotLock) {
     });
 
     app.whenReady().then(async () => {
+        // App obrigatório: precisa vir junto com o Windows, sem depender de alguém
+        // clicar no atalho. (Isso cria um item por-usuário em Configurações > Apps de
+        // Inicialização — um usuário padrão consegue desativar por ali; quem garante
+        // que o app volta de qualquer forma é o watchdog instalado junto, ver
+        // build/installer.nsh.)
+        app.setLoginItemSettings({ openAtLogin: true, name: 'SunDrowsy' });
+
+        // Detecta se a execução anterior foi encerrada sem passar pelo fluxo normal
+        // de saída (Gerenciador de Tarefas, crash, queda de energia) ANTES de sobrescrever
+        // o arquivo de estado com o heartbeat desta execução.
+        checkPreviousSessionCrash();
+        startHeartbeat();
+
         // Permite acesso à câmera/microfone sem o prompt padrão do Chromium travar o app.
         session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
             if (permission === 'media') return callback(true);
@@ -227,13 +293,26 @@ if (!gotLock) {
         createDotWindow();
         initAutoUpdater();
 
+        // Manda o relatório de fechamento indevido (se houver) assim que a página
+        // terminar de carregar — o app.js decide o que fazer (logar no Firestore).
+        mainWindow.webContents.on('did-finish-load', () => {
+            if (pendingCrashReport) {
+                mainWindow.webContents.send('sundrowsy:crash-report', pendingCrashReport);
+                pendingCrashReport = null;
+            }
+        });
+
         app.on('activate', () => {
             if (!mainWindow) createMainWindow();
             else focusMainWindow();
         });
     });
 
-    app.on('before-quit', () => { isQuitting = true; });
+    app.on('before-quit', () => {
+        isQuitting = true;
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        writeStateFile(true);
+    });
 
     app.on('window-all-closed', () => {
         // Não encerra: a janela principal só se "fecha" via hide() (ver mainWindow.on('close')).
@@ -251,6 +330,18 @@ if (!gotLock) {
 
     // --- IPC: clicar no dot traz a janela principal de volta ---
     ipcMain.on('sundrowsy:focus-main', focusMainWindow);
+
+    // --- IPC: quem está logado agora (pro arquivo de estado / detecção de crash) ---
+    ipcMain.on('sundrowsy:session-info', (_event, info) => {
+        sessionInfo = info || { uid: null, userName: null, role: null };
+        writeStateFile(false);
+    });
+
+    // --- IPC: senha de supervisor confirmada na janela principal — agora sim sai ---
+    ipcMain.on('sundrowsy:confirm-quit', () => {
+        isQuitting = true;
+        app.quit();
+    });
 
     // --- IPC: garante que o alerta de fadiga vai ser ouvido ---
     // Chamado pelo app (audio-manager.js) bem antes de tocar o som do alarme.

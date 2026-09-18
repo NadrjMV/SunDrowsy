@@ -31,6 +31,12 @@ const periodFilter = document.getElementById('period-filter');
 const userFilter = document.getElementById('user-filter'); // NOVO SELETOR
 const customDateInput = document.getElementById('custom-date-input');
 const btnRefreshLogs = document.getElementById('btn-refresh-logs');
+
+// --- ELEMENTOS: PÁGINA DE AUDITORIA ---
+const auditTableBody = document.getElementById('audit-table-body');
+const auditUserFilter = document.getElementById('audit-user-filter');
+const auditTypeFilter = document.getElementById('audit-type-filter');
+const btnAuditLoadMore = document.getElementById('btn-audit-load-more');
 const teamGrid = document.getElementById('team-grid-container');
 
 const navBtns = document.querySelectorAll('.nav-btn[data-view]');
@@ -509,17 +515,27 @@ async function setupRealtimeDashboard(period, customDateStr, forceRefresh = fals
 
 async function populateUserFilter() {
     if (!userFilter) return;
-    
+
     try {
         const snapshot = await db.collection('users').orderBy('displayName').get();
         userFilter.innerHTML = '<option value="ALL">Todos os Usuários</option>';
-        
+        if (auditUserFilter) auditUserFilter.innerHTML = '<option value="ALL">Todos os Usuários</option>';
+
         snapshot.forEach(doc => {
             const data = doc.data();
+            const label = data.displayName || data.email || doc.id;
+
             const option = document.createElement('option');
-            option.value = doc.id; 
-            option.textContent = data.displayName || data.email || doc.id;
+            option.value = doc.id;
+            option.textContent = label;
             userFilter.appendChild(option);
+
+            if (auditUserFilter) {
+                const auditOption = document.createElement('option');
+                auditOption.value = doc.id;
+                auditOption.textContent = label;
+                auditUserFilter.appendChild(auditOption);
+            }
         });
         console.log("👥 Filtro de usuários populado com sucesso.");
     } catch (error) {
@@ -540,10 +556,14 @@ function filterAndRenderLogs() {
     processLogs(filteredLogs);
 }
 
-function processLogs(logs) {
+// Eventos de sessão/app: vão pra página de Auditoria, não pra tabela de segurança.
+const AUDIT_TYPES = ['LOGIN', 'LOGOUT', 'APP_OPEN', 'APP_QUIT', 'APP_CLOSE_ATTEMPT_DENIED', 'APP_KILLED_UNEXPECTEDLY'];
+
+function processLogs(rawLogs) {
+    const logs = rawLogs.filter(l => !AUDIT_TYPES.includes(l.type));
     logs.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);
 
-    const criticalAlerts = logs.filter(l => 
+    const criticalAlerts = logs.filter(l =>
         l.type === 'ALARM' && l.reason && (
             l.reason.includes('SONO PROFUNDO') || 
             l.reason.includes('PERIGO') || 
@@ -1370,8 +1390,18 @@ function renderGroupedTable(logs) {
         const finalRole = userData ? userData.role : (lastLog.role || 'Vigia');
 
         let summaryText = isMultiple ? `<span style="color: var(--text-primary); font-weight: bold;">${group.items.length} Registros</span>` : (lastLog.reason || "Evento");
-        let badgeClass = (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') ? 'warning' : 'bg-danger';
-        let badgeHtml = `<span class="badge ${badgeClass}" style="${badgeClass === 'warning' ? 'background: rgba(255, 149, 0, 0.2); color: #FF9500;' : ''}">${summaryText}</span>`;
+
+        // Eventos de sessão (login/logout/abrir/sair) são informativos, não incidentes —
+        // só os de fechamento indevido/negado ficam com o vermelho de alerta (via 'bg-danger', padrão).
+        const SESSION_EVENT_TYPES = ['LOGIN', 'LOGOUT', 'APP_OPEN', 'APP_QUIT'];
+        let badgeClass = (lastLog.type === 'LUNCH_REPORT' || lastLog.type === 'LUNCH_ACTIVE') ? 'warning'
+            : SESSION_EVENT_TYPES.includes(lastLog.type) ? 'info'
+            : 'bg-danger';
+        const badgeStyles = {
+            warning: 'background: rgba(255, 149, 0, 0.2); color: #FF9500;',
+            info: 'background: rgba(10, 132, 255, 0.15); color: #0A84FF;',
+        };
+        let badgeHtml = `<span class="badge ${badgeClass}" style="${badgeStyles[badgeClass] || ''}">${summaryText}</span>`;
 
         const mainSnapshotBtn = (!isMultiple && lastLog.snapshot) ? `
             <button class="btn-icon-danger btn-view-snap" style="margin-right:8px; padding: 4px; vertical-align: middle; border: 1px solid rgba(255,208,40,0.3);" data-snap="${lastLog.snapshot}" title="Ver Foto">
@@ -1727,5 +1757,147 @@ window.addEventListener('click', (e) => {
     if (e.target.classList.contains('modal')) {
         e.target.style.opacity = '0';
         setTimeout(() => e.target.classList.add('hidden'), 300);
+    }
+});
+
+// --- PÁGINA DE AUDITORIA (paginada no back-end, pra não gastar leitura à toa) ---
+// Só busca quando a aba é aberta (e ao clicar em "Carregar mais"), nunca tudo de
+// uma vez — igual ao espírito do cache dos filtros de período do Dashboard.
+const AUDIT_PAGE_SIZE = 25;
+const AUDIT_TYPE_LABELS = {
+    LOGIN: 'Login',
+    LOGOUT: 'Logout',
+    APP_OPEN: 'Abriu o app',
+    APP_QUIT: 'Saiu do app',
+    APP_CLOSE_ATTEMPT_DENIED: 'Tentativa de sair negada',
+    APP_KILLED_UNEXPECTEDLY: 'Fechamento indevido',
+};
+const AUDIT_WARNING_TYPES = ['APP_CLOSE_ATTEMPT_DENIED', 'APP_KILLED_UNEXPECTEDLY'];
+
+let auditLastDoc = null;
+let auditHasMore = true;
+let auditLoading = false;
+let auditLoadedOnce = false;
+
+function buildAuditQuery() {
+    const selectedUid = auditUserFilter ? auditUserFilter.value : 'ALL';
+    const selectedType = auditTypeFilter ? auditTypeFilter.value : 'ALL';
+
+    let query = db.collectionGroup('logs');
+    query = (selectedType === 'ALL')
+        ? query.where('type', 'in', AUDIT_TYPES)
+        : query.where('type', '==', selectedType);
+
+    if (selectedUid !== 'ALL') query = query.where('uid', '==', selectedUid);
+
+    query = query.orderBy('timestamp', 'desc').limit(AUDIT_PAGE_SIZE);
+    if (auditLastDoc) query = query.startAfter(auditLastDoc);
+    return query;
+}
+
+function renderAuditRows(rows, append) {
+    if (!auditTableBody) return;
+    if (!append) auditTableBody.innerHTML = '';
+
+    if (rows.length === 0 && !append) {
+        auditTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">
+            <span class="material-icons-round" style="font-size: 24px; vertical-align: middle; margin-right: 8px;">check_circle</span>
+            Nenhum evento encontrado.
+        </td></tr>`;
+        return;
+    }
+
+    const rowsHtml = rows.map(log => {
+        const date = log.timestamp.toDate();
+        const time = `${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })} ${date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`;
+        const userData = localUsersList.find(u => u.uid === log.uid);
+        const displayName = userData ? userData.displayName : (log.userName || 'Usuário Desconhecido');
+        const role = userData ? userData.role : (log.role || '');
+
+        const isWarning = AUDIT_WARNING_TYPES.includes(log.type);
+        const badgeStyle = isWarning
+            ? 'background: rgba(255, 69, 58, 0.12); color: var(--danger);'
+            : 'background: rgba(10, 132, 255, 0.15); color: #0A84FF;';
+        const eventLabel = AUDIT_TYPE_LABELS[log.type] || log.type;
+
+        return `
+            <tr>
+                <td style="font-family: monospace; color: var(--primary);">${time}</td>
+                <td>
+                    <div style="display: flex; flex-direction: column;">
+                        <span style="font-weight: 600;">${displayName}</span>
+                        <span style="font-size: 0.75rem; color: var(--text-muted);">${role}</span>
+                    </div>
+                </td>
+                <td><span class="badge" style="${badgeStyle}">${eventLabel}</span></td>
+                <td style="font-size: 0.85rem; color: var(--text-muted);">${log.reason || ''}</td>
+            </tr>
+        `;
+    }).join('');
+
+    if (append) auditTableBody.insertAdjacentHTML('beforeend', rowsHtml);
+    else auditTableBody.innerHTML = rowsHtml;
+}
+
+async function loadAuditPage(reset) {
+    if (auditLoading) return;
+    if (reset) {
+        auditLastDoc = null;
+        auditHasMore = true;
+    }
+    if (!auditHasMore) return;
+
+    auditLoading = true;
+    if (btnAuditLoadMore) { btnAuditLoadMore.disabled = true; btnAuditLoadMore.innerText = 'Carregando...'; }
+
+    try {
+        const snap = await buildAuditQuery().get();
+        const rows = snap.docs.map(doc => {
+            const data = doc.data();
+            const uidFromPath = doc.ref.parent.parent ? doc.ref.parent.parent.id : null;
+            return { ...data, uid: data.uid || uidFromPath };
+        });
+
+        renderAuditRows(rows, !reset);
+
+        if (snap.docs.length > 0) auditLastDoc = snap.docs[snap.docs.length - 1];
+        auditHasMore = snap.docs.length === AUDIT_PAGE_SIZE;
+    } catch (error) {
+        console.error('❌ Erro ao carregar auditoria (pode faltar índice composto no Firestore — veja o link no erro acima):', error);
+        if (!reset) showToast('Erro ao carregar mais eventos.');
+        else if (auditTableBody) {
+            auditTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">Erro ao carregar auditoria. Veja o console (F12) — provavelmente falta criar um índice no Firestore (o próprio erro traz o link).</td></tr>`;
+        }
+    } finally {
+        auditLoading = false;
+        if (btnAuditLoadMore) {
+            btnAuditLoadMore.innerText = 'Carregar mais';
+            btnAuditLoadMore.disabled = !auditHasMore;
+            btnAuditLoadMore.style.display = auditHasMore ? 'inline-block' : 'none';
+        }
+    }
+}
+
+if (btnAuditLoadMore) {
+    btnAuditLoadMore.addEventListener('click', () => loadAuditPage(false));
+}
+
+if (auditUserFilter) {
+    auditUserFilter.addEventListener('change', () => loadAuditPage(true));
+}
+if (auditTypeFilter) {
+    auditTypeFilter.addEventListener('change', () => loadAuditPage(true));
+}
+
+// Só busca a primeira página quando a aba de Auditoria é aberta por bem — e só uma
+// vez por sessão (a menos que os filtros mudem), pra não gastar leitura sem uso.
+navBtns.forEach(btn => {
+    if (btn.getAttribute('data-view') === 'audit') {
+        btn.addEventListener('click', () => {
+            if (!auditLoadedOnce) {
+                auditLoadedOnce = true;
+                loadAuditPage(true);
+            }
+        });
     }
 });
