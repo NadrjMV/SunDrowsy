@@ -111,6 +111,20 @@ let earHistory = new Array(50).fill(0.3);
     console.log(`🚀 ${APP_CONFIG.NAME} carregado - Versão: ${APP_CONFIG.VERSION}`);
 })();
 
+// Substitui window.alert(): diálogos nativos bloqueantes deixam os campos da tela
+// travados pra clique/digitação depois de fechados (especialmente no app nativo/Electron).
+function showToast(message, type = 'error') {
+    const toast = document.createElement('div');
+    const bg = type === 'success' ? 'var(--safe)' : 'var(--danger)';
+    toast.style.cssText = `position:fixed; bottom:30px; left:50%; transform:translateX(-50%); background:${bg}; color:#000; padding:14px 26px; border-radius:12px; font-weight:600; z-index:10000; box-shadow:0 10px 30px rgba(0,0,0,0.4); max-width:90vw; text-align:center; transition:opacity 0.3s ease;`;
+    toast.innerText = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 3200);
+}
+
 // --- LOGIN POR E-MAIL E SENHA ---
 const formEmailLogin = document.getElementById('form-email-login');
 if (formEmailLogin) {
@@ -137,7 +151,7 @@ if (formEmailLogin) {
         }
     } catch (error) {
         console.error("Erro Auth:", error);
-        alert("Erro: " + error.message);
+        showToast("Erro: " + error.message);
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
@@ -172,7 +186,7 @@ btnConfirmUnlock.addEventListener('click', async () => {
             adminPassModal.classList.add('hidden');
             unlockInput.value = "";
         } else {
-            alert("Senha incorreta!");
+            showToast("Senha incorreta!");
         }
     } catch (error) { console.error(error); }
 });
@@ -273,7 +287,7 @@ if (inviteToken) {
 document.getElementById('btn-google-login').addEventListener('click', () => {
     auth.signInWithPopup(googleProvider).catch((error) => {
         console.error("Erro Auth:", error);
-        alert("Erro no login: " + error.message);
+        showToast("Erro no login: " + error.message);
     });
 });
 ;
@@ -366,7 +380,7 @@ auth.onAuthStateChanged(async (user) => {
             }
 
         } catch (error) {
-            alert(error.message);
+            showToast(error.message);
             auth.signOut();
         }
     } else {
@@ -420,7 +434,7 @@ function setupLgpdEvents(uid) {
 
         } catch (error) {
             console.error("Erro ao salvar LGPD:", error);
-            alert("Erro ao salvar consentimento. Tente novamente.");
+            showToast("Erro ao salvar consentimento. Tente novamente.");
             btn.disabled = false;
             btn.innerText = originalText;
         }
@@ -542,7 +556,7 @@ async function initSystem() {
         };
     } catch (err) {
         console.error("Erro Câmera:", err);
-        alert("Erro ao abrir câmera: " + err.message);
+        showToast("Erro ao abrir câmera: " + err.message);
     }
 }
 
@@ -632,11 +646,11 @@ function onResults(results) {
     if (!document.hidden) {
         canvasCtx.save();
         canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-        
-        // Espelhamento (Mirror)
-        canvasCtx.translate(canvasElement.width, 0);
-        canvasCtx.scale(-1, 1);
-        
+
+        // SEM espelhamento: este é um monitoramento de segurança, não uma selfie —
+        // a orientação mostrada (e salva nos snapshots) deve ser fiel à realidade
+        // (esquerda/direita reais), não invertida como um espelho.
+
         // Só desenha a foto da câmera se a variável for true
         if (window.showCameraFeed) {
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
@@ -1043,8 +1057,9 @@ function toggleLunchState(active) {
         detector.state.lunchStartedAt = Date.now();
         detector.stopAlarm();
         detector.updateUI("PAUSA: ALMOÇO 🍔");
-        
+
         appContainer.classList.add('lunch-mode');
+        window.electronAPI?.reportStatus({ level: 'lunch', label: 'ALMOÇO' });
         logLunchAction("LUNCH_START");
 
         if (lunchTimerInterval) clearInterval(lunchTimerInterval);
@@ -1084,7 +1099,8 @@ function toggleLunchState(active) {
         detector.stopAlarm();
         detector.updateUI("SISTEMA ATIVO");
         appContainer.classList.remove('lunch-mode');
-        
+        window.electronAPI?.reportStatus({ level: 'safe', label: 'ATIVO' });
+
         if(btnLunch) {
             btnLunch.classList.remove('active');
             btnLunch.disabled = true; 
@@ -1110,7 +1126,7 @@ if (btnLunch) {
         }
 
         if (hasLunchToday()) {
-            alert("⛔ Pausa já utilizada hoje!");
+            showToast("⛔ Pausa já utilizada hoje!");
             return;
         }
 
@@ -1223,12 +1239,12 @@ if(formProfile) {
             document.getElementById('user-name').innerText = newName;
             document.getElementById('user-photo').src = newPhoto;
 
-            alert("Perfil atualizado com sucesso!");
+            showToast("Perfil atualizado com sucesso!", "success");
             toggleModal(profileModal, false);
 
         } catch (error) {
             console.error("Erro ao atualizar perfil:", error);
-            alert("Erro: " + error.message);
+            showToast("Erro: " + error.message);
         } finally {
             btn.disabled = false;
             btn.innerText = originalText;
@@ -1368,7 +1384,7 @@ if (debugSliderEyes) {
         // TRAVA LÓGICA: Se não autenticou, reseta o valor e bloqueia
         if (!isCalibrationUnlocked) {
             e.target.value = detector.config.EAR_THRESHOLD;
-            alert("Ação bloqueada: Autenticação de supervisor necessária.");
+            showToast("Ação bloqueada: Autenticação de supervisor necessária.");
             return;
         }
 
@@ -1393,7 +1409,7 @@ if (debugSliderHead) {
         // TRAVA LÓGICA: Proteção também para o sensor de cabeça
         if (!isCalibrationUnlocked) {
             e.target.value = detector.config.HEAD_RATIO_THRESHOLD;
-            alert("Ação bloqueada: Autenticação de supervisor necessária.");
+            showToast("Ação bloqueada: Autenticação de supervisor necessária.");
             return;
         }
  
@@ -1436,12 +1452,8 @@ window.captureSnapshot = () => {
                 tempCanvas.height = SNAP_H;
                 const tempCtx = tempCanvas.getContext('2d');
 
-                // Espelha horizontalmente (mirror) igual ao preview
-                tempCtx.save();
-                tempCtx.translate(SNAP_W, 0);
-                tempCtx.scale(-1, 1);
+                // Sem espelhamento — igual ao preview (ver onResults), orientação real.
                 tempCtx.drawImage(videoElement, 0, 0, SNAP_W, SNAP_H);
-                tempCtx.restore();
 
                 const dataUrl = tempCanvas.toDataURL('image/jpeg', 0.6);
 

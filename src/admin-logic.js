@@ -265,11 +265,11 @@ if(adminFormProfile) {
             const adminHeaderPhoto = document.getElementById('admin-photo');
             if (adminHeaderPhoto) adminHeaderPhoto.src = newPhoto || 'https://ui-avatars.com/api/?background=333&color=fff';
 
-            alert("Perfil de Administrador atualizado!");
+            showToast("Perfil de Administrador atualizado!", "success");
             
         } catch (error) {
             console.error(error);
-            alert("Erro: " + error.message);
+            showToast("Erro: " + error.message);
         } finally {
             btn.disabled = false;
             btn.innerText = originalText;
@@ -1040,7 +1040,7 @@ function bindTeamActionsDelegation() {
             const canToggle = window.isSystemOwner || (window.currentAdminRole === 'ADMIN' && isTargetAgent);
 
             if (!canToggle) {
-                alert("Você não tem permissão para alterar o status desta conta.");
+                showToast("Você não tem permissão para alterar o status desta conta.");
                 closeAllMenus();
                 return;
             }
@@ -1231,13 +1231,52 @@ function setupInviteSystem() {
     });
 }
 
-// Helper rápido para feedback visual (substitui o alert feio)
-function toastSuccess(msg) {
+// Substitui window.alert(): diálogos nativos bloqueantes deixam os campos da tela
+// travados pra clique/digitação depois de fechados (especialmente no app nativo/Electron).
+function showToast(msg, type = 'error') {
     const toast = document.createElement('div');
-    toast.style = "position:fixed; bottom:30px; left:50%; transform:translateX(-50%); background:var(--safe); color:#000; padding:12px 25px; border-radius:12px; font-weight:bold; z-index:10000; animation: floatUp 0.3s ease;";
+    const bg = type === 'success' ? 'var(--safe)' : 'var(--danger)';
+    toast.style.cssText = `position:fixed; bottom:30px; left:50%; transform:translateX(-50%); background:${bg}; color:#000; padding:14px 26px; border-radius:12px; font-weight:600; z-index:10000; box-shadow:0 10px 30px rgba(0,0,0,0.4); max-width:90vw; text-align:center; transition:opacity 0.3s ease;`;
     toast.innerText = msg;
     document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2500);
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 3200);
+}
+
+function toastSuccess(msg) { showToast(msg, 'success'); }
+
+// Substitui window.confirm(): mesmo problema de foco que o alert() nativo,
+// além de ficar visualmente destoante do resto do painel. Reaproveita o modal
+// #confirm-action-modal já usado em outros pontos (ex: desativar colaborador).
+function confirmDialog(title, desc, { confirmText = 'Confirmar', danger = true } = {}) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirm-action-modal');
+        const titleEl = document.getElementById('confirm-title');
+        const descEl = document.getElementById('confirm-desc');
+        const btnExec = document.getElementById('btn-confirm-execute');
+        const btnCancel = document.getElementById('btn-confirm-cancel');
+
+        titleEl.innerText = title;
+        descEl.innerText = desc;
+        btnExec.innerText = confirmText;
+        btnExec.style.background = danger ? 'var(--danger)' : 'var(--accent)';
+
+        const close = (result) => {
+            modal.style.opacity = '0';
+            setTimeout(() => modal.classList.add('hidden'), 300);
+            btnExec.onclick = null;
+            btnCancel.onclick = null;
+            resolve(result);
+        };
+
+        btnExec.onclick = () => close(true);
+        btnCancel.onclick = () => close(false);
+
+        modal.classList.remove('hidden');
+        setTimeout(() => modal.style.opacity = '1', 10);
+    });
 }
 
 function setupModalsTeam() {
@@ -1429,7 +1468,7 @@ const inputPass = document.getElementById('input-global-pass');
 
 btnSavePass.addEventListener('click', async () => {
     const newPass = inputPass.value.trim();
-    if (newPass.length < 4) return alert("A senha deve ter pelo menos 4 dígitos.");
+    if (newPass.length < 4) return showToast("A senha deve ter pelo menos 4 dígitos.");
 
     try {
         // Armazena em um documento de configurações globais
@@ -1437,7 +1476,7 @@ btnSavePass.addEventListener('click', async () => {
             calibrationPassword: newPass
         }, { merge: true });
         
-        alert("Senha de calibração atualizada!");
+        showToast("Senha de calibração atualizada!", "success");
         inputPass.value = "";
     } catch (error) {
         console.error("Erro ao salvar senha:", error);
@@ -1448,7 +1487,8 @@ btnSavePass.addEventListener('click', async () => {
 window.confirmDeleteOne = async function(uid, dateFolder, docId) {
     if(window.event) window.event.stopPropagation();
 
-    if (!confirm("⚠️ ATENÇÃO: Deseja apagar este registro permanentemente?")) return;
+    const ok = await confirmDialog("Apagar registro?", "Essa ação não pode ser desfeita.", { confirmText: "Apagar" });
+    if (!ok) return;
 
     try {
         // Busca na subcoleção fixa 'logs'
@@ -1456,7 +1496,7 @@ window.confirmDeleteOne = async function(uid, dateFolder, docId) {
         console.log("Log deletado.");
     } catch (error) {
         console.error("Erro ao deletar:", error);
-        alert("Erro ao deletar: " + error.message);
+        showToast("Erro ao deletar: " + error.message);
     }
 };
 
@@ -1476,15 +1516,20 @@ if (userFilter && btnWipeText) {
 
 if (btnWipe) {
     btnWipe.addEventListener('click', async () => {
-        if (!globalRawLogs || globalRawLogs.length === 0) return alert("Nada para deletar.");
+        if (!globalRawLogs || globalRawLogs.length === 0) return showToast("Nada para deletar.");
 
         const selectedUser = userFilter.value;
         let logsToDelete = (selectedUser === 'ALL') ? globalRawLogs : globalRawLogs.filter(l => l.uid === selectedUser);
-        let confirmMsg = (selectedUser === 'ALL') ? "🚨 PERIGO EXTREMO: Apagar TUDO visível?" : "⚠️ Apagar registros do usuário?";
+        let confirmMsg = (selectedUser === 'ALL') ? "Isso apaga TUDO que está visível agora, sem volta." : "Apagar todos os registros deste usuário?";
 
-        if (logsToDelete.length === 0) return alert("Nada para deletar.");
+        if (logsToDelete.length === 0) return showToast("Nada para deletar.");
 
-        if (confirm(confirmMsg)) {
+        const confirmed = await confirmDialog(
+            selectedUser === 'ALL' ? "Apagar tudo?" : "Apagar registros do usuário?",
+            confirmMsg,
+            { confirmText: "Apagar" }
+        );
+        if (confirmed) {
             if (selectedUser === 'ALL') {
                 const check = prompt("Digite 'DELETAR' para confirmar:");
                 if (check !== 'DELETAR') return;
@@ -1497,7 +1542,7 @@ if (btnWipe) {
                 for (const log of logsToDelete) {
                     await db.collection('logs').doc(log.uid).collection('logs').doc(log.id).delete();
                 }
-                alert("Limpeza concluída.");
+                showToast("Limpeza concluída.", "success");
             } catch (error) {
                 console.error(error);
             } finally {
@@ -1629,7 +1674,7 @@ if (btnExportCsv) {
 }
 
 function exportLogsToCSV() {
-    if (!globalRawLogs || globalRawLogs.length === 0) return alert("Sem dados.");
+    if (!globalRawLogs || globalRawLogs.length === 0) return showToast("Sem dados.");
     const selectedUser = userFilter.value;
     let dataToExport = (selectedUser === 'ALL') ? [...globalRawLogs] : globalRawLogs.filter(log => log.uid === selectedUser);
     dataToExport.sort((a, b) => b.timestamp.seconds - a.timestamp.seconds);

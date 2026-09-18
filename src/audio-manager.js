@@ -24,9 +24,14 @@ export class AudioManager {
             console.warn("⚠️ Buffer de áudio vazio!");
             return;
         }
-        
+
         // Se já estiver tocando, não sobrepõe
         if (this.isPlaying) return;
+
+        // No app nativo (Electron), garante que o Windows não está mudo/baixo demais
+        // antes de tocar — este alarme é de segurança, não pode depender de alguém
+        // ter deixado o som ligado por acaso. Sem efeito no navegador comum.
+        window.electronAPI?.ensureAudible();
 
         // Tenta acordar o contexto de áudio (Navegadores bloqueiam autoplay)
         if (this.audioContext.state === 'suspended') {
@@ -59,6 +64,10 @@ export class AudioManager {
             this.currentSource = null;
         }
         this.isPlaying = false;
+
+        // No app nativo, devolve o volume/mudo do Windows pro estado de antes do
+        // alarme (ver ensureAudible em playAlert). Sem efeito no navegador comum.
+        window.electronAPI?.restoreVolume();
     //    console.log("🔇 Alarme parado.");
     }
 }

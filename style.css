@@ -393,7 +393,7 @@ body.admin-page { background: var(--surface-0); }
 @media (max-width: 1400px) {
     .admin-layout { grid-template-columns: 220px 1fr; }
 }
-.admin-view { display: none; animation: fadeIn 0.25s var(--ease); width: 100%; height: 100%; flex-direction: column; gap: 28px; }
+.admin-view { display: none; animation: fadeIn 0.25s var(--ease); width: 100%; flex-direction: column; gap: 28px; }
 .admin-view.active { display: flex; }
 
 /* --- Sidebar (Admin) --- */
@@ -471,6 +471,7 @@ body.admin-page .header-dash small { color: var(--text-secondary) !important; }
 /* KPI: um único card, dividido em seções (estilo "Dashboard: Revenue | Cost | Margin") */
 .kpi-grid {
     display: flex !important;
+    flex-shrink: 0;
     background: var(--surface-1);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
@@ -518,7 +519,7 @@ body.admin-page .header-dash small { color: var(--text-secondary) !important; }
 }
 
 /* Charts & Tables */
-.charts-grid { display: flex !important; gap: 16px !important; align-items: stretch; }
+.charts-grid { display: flex !important; gap: 16px !important; align-items: stretch; flex-shrink: 0; }
 .chart-box {
     background: var(--surface-1); border: 1px solid var(--border-subtle); border-radius: var(--radius-card);
     padding: 20px; position: relative; flex: 1;
