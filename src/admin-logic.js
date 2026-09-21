@@ -126,6 +126,11 @@ auth.onAuthStateChanged(async (user) => {
         window.currentAdminRole = role;
         window.isSystemOwner = (role === 'OWNER');
 
+        // Auditoria (login/logout/abertura/fechamento do app) é só pro OWNER —
+        // ADMIN não vê nem a aba, nem consegue carregar os dados.
+        const navAuditBtn = document.getElementById('nav-audit-btn');
+        if (navAuditBtn) navAuditBtn.style.display = window.isSystemOwner ? '' : 'none';
+
         // Foto do admin no header
         const headerPhoto = document.getElementById('admin-photo');
         if (headerPhoto) headerPhoto.src = user.photoURL || 'https://ui-avatars.com/api/?background=333&color=fff';
@@ -1843,6 +1848,9 @@ function renderAuditRows(rows, append) {
 }
 
 async function loadAuditPage(reset) {
+    // Defesa em profundidade: mesmo que o botão esteja escondido, não deixa um
+    // ADMIN (não-OWNER) puxar os dados de auditoria de outra forma.
+    if (!window.isSystemOwner) return;
     if (auditLoading) return;
     if (reset) {
         auditLastDoc = null;
