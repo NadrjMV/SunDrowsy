@@ -162,13 +162,17 @@ const btnConfirmUnlock = document.getElementById('btn-confirm-unlock');
 const unlockInput = document.getElementById('admin-unlock-pass');
 const btnReLock = document.getElementById('btn-re-lock');
 const btnCancelUnlock = document.getElementById('btn-cancel-unlock');
+const adminPassDesc = document.getElementById('admin-pass-desc');
+const ADMIN_PASS_DEFAULT_MSG = "Insira a senha de supervisor para continuar.";
 
 // Pede a senha de supervisor (mesma senha da calibração, salva em
 // settings/globalConfig.calibrationPassword) e resolve true/false.
-// Reaproveitado tanto pra liberar os sliders de calibração quanto pra trocar o
-// perfil de desempenho.
-function requestAdminPassword() {
+// Reaproveitado pra liberar os sliders de calibração, trocar o perfil de
+// desempenho e encerrar o app — "reason" troca o texto do modal pra dizer
+// exatamente o que está sendo autorizado, em vez de uma mensagem genérica.
+function requestAdminPassword(reason) {
     return new Promise((resolve) => {
+        if (adminPassDesc) adminPassDesc.innerText = reason || ADMIN_PASS_DEFAULT_MSG;
         adminPassModal.classList.remove('hidden');
         unlockInput.value = "";
         unlockInput.focus();
@@ -206,7 +210,7 @@ function requestAdminPassword() {
 
 // 1. Abrir modal ao clicar no cadeado
 lockOverlay.addEventListener('click', async () => {
-    const ok = await requestAdminPassword();
+    const ok = await requestAdminPassword("Insira a senha de supervisor para calibrar os sensores.");
     if (ok) {
         isCalibrationUnlocked = true; // ATIVA A LÓGICA
         lockOverlay.classList.add('hidden');
@@ -248,7 +252,7 @@ if (window.electronAPI?.isElectron) {
     window.electronAPI.onRequestQuit(async () => {
         const currentUser = auth.currentUser;
         const role = detector ? detector.config.role : null;
-        const ok = await requestAdminPassword();
+        const ok = await requestAdminPassword("Insira a senha de supervisor para encerrar o aplicativo.");
         if (ok) {
             logSystemEvent(currentUser?.uid, currentUser?.displayName, role, 'APP_QUIT', 'Encerrado com senha de supervisor');
             window.electronAPI.confirmQuit();
@@ -703,7 +707,7 @@ if (perfModeSelector) {
         const previousKey = currentPerfProfileKey;
         e.target.value = previousKey; // reverte visualmente até a senha ser confirmada
 
-        const ok = await requestAdminPassword();
+        const ok = await requestAdminPassword("Insira a senha de supervisor para alterar o perfil de desempenho.");
         if (ok) {
             e.target.value = newKey;
             applyPerformanceProfile(newKey);
