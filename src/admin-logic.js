@@ -603,8 +603,11 @@ function processLogs(rawLogs) {
 }
 
 // --- LÓGICA DE RELATÓRIOS (RANKING & HEATMAP) ---
-function renderReports(logs) {
-    if (!logs || logs.length === 0) return;
+function renderReports(rawLogs) {
+    // Antes retornava aqui sem tocar no DOM quando não havia log nenhum no
+    // período — deixava "Carregando dados..." preso pra sempre. Segue em frente
+    // com array vazio pra renderizar o estado "sem dados" de verdade.
+    const logs = rawLogs || [];
 
     if (!tooltipEl) {
         tooltipEl = document.createElement('div');
