@@ -1866,7 +1866,7 @@ async function loadAuditPage(reset) {
         console.error('❌ Erro ao carregar auditoria (pode faltar índice composto no Firestore — veja o link no erro acima):', error);
         if (!reset) showToast('Erro ao carregar mais eventos.');
         else if (auditTableBody) {
-            auditTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">Erro ao carregar auditoria. Veja o console (F12) — provavelmente falta criar um índice no Firestore (o próprio erro traz o link).</td></tr>`;
+            auditTableBody.innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted); padding: 30px;">Erro ao carregar auditoria.</td></tr>`;
         }
     } finally {
         auditLoading = false;
