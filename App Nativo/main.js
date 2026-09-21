@@ -266,7 +266,13 @@ if (!gotLock) {
         // Inicialização — um usuário padrão consegue desativar por ali; quem garante
         // que o app volta de qualquer forma é o watchdog instalado junto, ver
         // build/installer.nsh.)
-        app.setLoginItemSettings({ openAtLogin: true, name: 'SunDrowsy' });
+        // SÓ registra em produção (empacotado). Em dev, process.execPath é o
+        // electron.exe cru dentro de node_modules — registrar isso faria o Windows
+        // abrir o Electron "vazio" (tela padrão, sem nenhum app) na inicialização,
+        // porque sem empacotamento não há caminho de app pra passar junto.
+        if (app.isPackaged) {
+            app.setLoginItemSettings({ openAtLogin: true, name: 'SunDrowsy' });
+        }
 
         // Detecta se a execução anterior foi encerrada sem passar pelo fluxo normal
         // de saída (Gerenciador de Tarefas, crash, queda de energia) ANTES de sobrescrever
