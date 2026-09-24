@@ -1,6 +1,6 @@
 {
   "name": "sundrowsy-native",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SunDrowsy - versao nativa para Windows (app + dot flutuante de status)",
   "main": "main.js",
   "author": "jordanlvs",

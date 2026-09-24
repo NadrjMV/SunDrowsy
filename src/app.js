@@ -71,6 +71,19 @@ const PERFORMANCE_PROFILES = {
 let currentPerfProfileKey = 'precisao';
 window.currentPerfProfile = PERFORMANCE_PROFILES[currentPerfProfileKey];
 
+// Câmera escolhida no #camera-selector (fica salva neste PC). Vazio = padrão do sistema.
+const CAMERA_KEY = 'sd_camera_device_id';
+let selectedCameraId = '';
+try { selectedCameraId = localStorage.getItem(CAMERA_KEY) || ''; } catch (e) {}
+
+function buildVideoConstraints(profile) {
+    const video = { width: { ideal: profile.width }, height: { ideal: profile.height } };
+    // 'ideal' em vez de 'exact': se a câmera salva foi desconectada, cai na padrão em vez de falhar.
+    if (selectedCameraId) video.deviceId = { ideal: selectedCameraId };
+    else video.facingMode = "user";
+    return { video };
+}
+
 // PERFIL ELEMENTS
 const btnOpenProfile = document.getElementById('btn-open-profile');
 const profileModal = document.getElementById('profile-modal');
@@ -463,7 +476,6 @@ auth.onAuthStateChanged(async (user) => {
             auth.signOut();
         }
     } else {
-        // --- AQUI ESTÁ O TRUQUE ---
         // Se houver um token no storage, não limpamos a tela agressivamente
         const hasToken = sessionStorage.getItem('sd_invite_token');
         if (hasToken) {
@@ -620,14 +632,10 @@ async function initSystem() {
             // Resolução da câmera segue o perfil de desempenho ativo (ver PERFORMANCE_PROFILES).
             // 'ideal' pede essa resolução sem travar se o dispositivo não suportar exatamente.
             const profile = PERFORMANCE_PROFILES[currentPerfProfileKey];
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: {
-                    width: { ideal: profile.width },
-                    height: { ideal: profile.height },
-                    facingMode: "user"
-                }
-            });
+            const stream = await navigator.mediaDevices.getUserMedia(buildVideoConstraints(profile));
             videoElement.srcObject = stream;
+            // Só depois da permissão o navegador revela os nomes das câmeras.
+            refreshCameraList();
         videoElement.onloadedmetadata = () => {
             // FIX: Remove display:none e usa opacity 0 para garantir que o renderizador
             // processe os frames, permitindo que o drawImage do snapshot funcione.
@@ -683,17 +691,67 @@ async function applyPerformanceProfile(key) {
     startDetectionLoop();
 
     try {
-        const newStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: profile.width }, height: { ideal: profile.height }, facingMode: "user" }
-        });
-        const oldStream = videoElement.srcObject;
-        videoElement.srcObject = newStream;
-        if (oldStream) oldStream.getTracks().forEach(track => track.stop());
+        await restartCameraStream();
     } catch (err) {
         console.error("Erro ao trocar resolução da câmera para o novo perfil:", err);
     }
 }
 window.applyPerformanceProfile = applyPerformanceProfile;
+
+// Reabre a câmera com as constraints atuais (perfil + câmera selecionada) sem mexer no detector.
+// Para o stream antigo ANTES de abrir o novo: várias webcams no Windows não aceitam dois
+// acessos simultâneos, e trocar de câmera com a antiga aberta pode falhar.
+async function restartCameraStream() {
+    const oldStream = videoElement.srcObject;
+    if (oldStream) oldStream.getTracks().forEach(track => track.stop());
+    const newStream = await navigator.mediaDevices.getUserMedia(buildVideoConstraints(PERFORMANCE_PROFILES[currentPerfProfileKey]));
+    videoElement.srcObject = newStream;
+    videoElement.play().catch(() => {});
+}
+
+const cameraSelector = document.getElementById('camera-selector');
+
+async function refreshCameraList() {
+    if (!cameraSelector || !navigator.mediaDevices?.enumerateDevices) return;
+    try {
+        const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+        cameraSelector.innerHTML = '<option value="">Padrão do sistema</option>';
+        cams.forEach((cam, i) => {
+            const opt = document.createElement('option');
+            opt.value = cam.deviceId;
+            opt.textContent = cam.label || `Câmera ${i + 1}`;
+            cameraSelector.appendChild(opt);
+        });
+        const saved = cams.some(c => c.deviceId === selectedCameraId);
+        cameraSelector.value = saved ? selectedCameraId : '';
+    } catch (err) {
+        console.error("Erro ao listar câmeras:", err);
+    }
+}
+
+if (cameraSelector) {
+    refreshCameraList();
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshCameraList);
+
+    cameraSelector.addEventListener('change', async (e) => {
+        const previousId = selectedCameraId;
+        selectedCameraId = e.target.value;
+        try { localStorage.setItem(CAMERA_KEY, selectedCameraId); } catch (err) {}
+
+        if (!detector || !videoElement.srcObject) return; // aplica ao iniciar o sistema
+        try {
+            await restartCameraStream();
+            showToast("Câmera alterada.", "success");
+        } catch (err) {
+            console.error("Erro ao trocar de câmera:", err);
+            showToast("Não foi possível abrir essa câmera: " + err.message);
+            selectedCameraId = previousId;
+            e.target.value = previousId;
+            try { localStorage.setItem(CAMERA_KEY, previousId); } catch (e2) {}
+            try { await restartCameraStream(); } catch (e3) {}
+        }
+    });
+}
 
 const perfModeSelector = document.getElementById('performance-mode');
 if (perfModeSelector) {
