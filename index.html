@@ -144,13 +144,6 @@
                 </select>
             </div>
 
-            <div class="profile-selector" style="margin-bottom: 10px;">
-                <small style="color: var(--text-muted); font-size: 0.7rem; margin-bottom: 4px; display: block;" title="Escolhe qual câmera o SunDrowsy usa quando há mais de uma conectada">Câmera:</small>
-                <select id="camera-selector" class="glass-input" style="width: 100%; padding: 6px 10px; font-size: 0.8rem;">
-                    <option value="">Padrão do sistema</option>
-                </select>
-            </div>
-
             <hr style="margin: 5px 0 10px 0;">
             <button class="nav-btn logout" id="btn-logout" style="padding: 10px;"><span class="material-icons-round" style="font-size: 1.2rem;">power_settings_new</span> Sair</button>
 
@@ -196,6 +189,13 @@
                             <span id="system-status" style="font-size: 0.8rem; opacity: 0.9;">INIT...</span>
                         </div>
                     </div>
+                </div>
+
+                <div class="camera-switch hidden" id="camera-switch">
+                    <button id="btn-camera-switch" class="camera-switch-btn" title="Trocar câmera" aria-haspopup="true" aria-expanded="false">
+                        <span class="material-icons-round">cameraswitch</span>
+                    </button>
+                    <div id="camera-menu" class="camera-menu hidden" role="menu"></div>
                 </div>
 
                 <div id="danger-alert" class="danger-overlay hidden">

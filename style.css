@@ -1301,3 +1301,27 @@ body.admin-page .glass-input:focus { border-color: var(--accent); }
 }
 
 @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+/* Troca de câmera — ícone discreto no canto superior direito da imagem */
+.camera-switch { position: absolute; top: 20px; right: 20px; z-index: 35; }
+.camera-switch-btn {
+    width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
+    background: rgba(10, 10, 10, 0.45); border: 1px solid rgba(255,255,255,0.1); color: #fff;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    cursor: pointer; opacity: 0.45; transition: var(--transition);
+}
+.camera-switch-btn .material-icons-round { font-size: 18px; }
+.camera-switch-btn:hover, .camera-switch-btn[aria-expanded="true"] { opacity: 1; background: rgba(10, 10, 10, 0.7); }
+.camera-menu {
+    position: absolute; top: 42px; right: 0; min-width: 220px; max-width: 320px; padding: 6px;
+    background: rgba(15, 15, 20, 0.92); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+    backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px); box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+    display: flex; flex-direction: column; gap: 2px;
+}
+.camera-menu-item {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: none; border-radius: 8px;
+    background: transparent; color: #fff; font: inherit; font-size: 0.8rem; text-align: left; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.camera-menu-item:hover { background: rgba(255,255,255,0.08); }
+.camera-menu-item .material-icons-round { font-size: 16px; color: var(--primary); visibility: hidden; }
+.camera-menu-item.active .material-icons-round { visibility: visible; }

@@ -71,7 +71,7 @@ const PERFORMANCE_PROFILES = {
 let currentPerfProfileKey = 'precisao';
 window.currentPerfProfile = PERFORMANCE_PROFILES[currentPerfProfileKey];
 
-// Câmera escolhida no #camera-selector (fica salva neste PC). Vazio = padrão do sistema.
+// Câmera escolhida no menu #camera-switch (fica salva neste PC). Vazio = padrão do sistema.
 const CAMERA_KEY = 'sd_camera_device_id';
 let selectedCameraId = '';
 try { selectedCameraId = localStorage.getItem(CAMERA_KEY) || ''; } catch (e) {}
@@ -709,36 +709,50 @@ async function restartCameraStream() {
     videoElement.play().catch(() => {});
 }
 
-const cameraSelector = document.getElementById('camera-selector');
+// Troca de câmera: ícone discreto no canto da imagem, só aparece com 2+ câmeras conectadas.
+const cameraSwitch = document.getElementById('camera-switch');
+const btnCameraSwitch = document.getElementById('btn-camera-switch');
+const cameraMenu = document.getElementById('camera-menu');
+
+function activeCameraId() {
+    const track = videoElement.srcObject?.getVideoTracks?.()[0];
+    return track?.getSettings?.().deviceId || selectedCameraId;
+}
+
+function closeCameraMenu() {
+    cameraMenu.classList.add('hidden');
+    btnCameraSwitch.setAttribute('aria-expanded', 'false');
+}
 
 async function refreshCameraList() {
-    if (!cameraSelector || !navigator.mediaDevices?.enumerateDevices) return;
+    if (!cameraSwitch || !navigator.mediaDevices?.enumerateDevices) return;
     try {
         const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
-        cameraSelector.innerHTML = '<option value="">Padrão do sistema</option>';
+        cameraSwitch.classList.toggle('hidden', cams.length < 2);
+        const activeId = activeCameraId();
+        cameraMenu.innerHTML = '';
         cams.forEach((cam, i) => {
-            const opt = document.createElement('option');
-            opt.value = cam.deviceId;
-            opt.textContent = cam.label || `Câmera ${i + 1}`;
-            cameraSelector.appendChild(opt);
+            const item = document.createElement('button');
+            item.className = 'camera-menu-item' + (cam.deviceId === activeId ? ' active' : '');
+            item.setAttribute('role', 'menuitem');
+            item.innerHTML = '<span class="material-icons-round">check</span>';
+            item.append(cam.label || `Câmera ${i + 1}`);
+            item.addEventListener('click', () => selectCamera(cam.deviceId));
+            cameraMenu.appendChild(item);
         });
-        const saved = cams.some(c => c.deviceId === selectedCameraId);
-        cameraSelector.value = saved ? selectedCameraId : '';
     } catch (err) {
         console.error("Erro ao listar câmeras:", err);
     }
 }
 
-if (cameraSelector) {
-    refreshCameraList();
-    navigator.mediaDevices?.addEventListener?.('devicechange', refreshCameraList);
+async function selectCamera(deviceId) {
+    closeCameraMenu();
+    if (deviceId === activeCameraId()) return;
+    const previousId = selectedCameraId;
+    selectedCameraId = deviceId;
+    try { localStorage.setItem(CAMERA_KEY, selectedCameraId); } catch (err) {}
 
-    cameraSelector.addEventListener('change', async (e) => {
-        const previousId = selectedCameraId;
-        selectedCameraId = e.target.value;
-        try { localStorage.setItem(CAMERA_KEY, selectedCameraId); } catch (err) {}
-
-        if (!detector || !videoElement.srcObject) return; // aplica ao iniciar o sistema
+    if (detector && videoElement.srcObject) { // sem sistema rodando, só vale ao iniciar
         try {
             await restartCameraStream();
             showToast("Câmera alterada.", "success");
@@ -746,10 +760,29 @@ if (cameraSelector) {
             console.error("Erro ao trocar de câmera:", err);
             showToast("Não foi possível abrir essa câmera: " + err.message);
             selectedCameraId = previousId;
-            e.target.value = previousId;
             try { localStorage.setItem(CAMERA_KEY, previousId); } catch (e2) {}
             try { await restartCameraStream(); } catch (e3) {}
         }
+    }
+    refreshCameraList();
+}
+
+if (cameraSwitch) {
+    refreshCameraList();
+    navigator.mediaDevices?.addEventListener?.('devicechange', refreshCameraList);
+
+    btnCameraSwitch.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const opening = cameraMenu.classList.contains('hidden');
+        if (opening) refreshCameraList();
+        cameraMenu.classList.toggle('hidden', !opening);
+        btnCameraSwitch.setAttribute('aria-expanded', String(opening));
+    });
+    document.addEventListener('click', (e) => {
+        if (!cameraSwitch.contains(e.target)) closeCameraMenu();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeCameraMenu();
     });
 }
 
