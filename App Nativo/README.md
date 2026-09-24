@@ -38,38 +38,106 @@ tarefa agendada.
 
 ## Atualização automática (OTA)
 
-Os apps instalados checam atualização ao abrir e a cada 4h (`electron-updater`,
-provider `generic` apontando pra `https://sundrowsy-db163.web.app/` — essa URL fica
-gravada no `resources/app-update.yml` de cada instalação, então **não pode mudar**).
-A versão nova baixa em segundo plano e é instalada quando o app fecha, ou pelo item
-"Reiniciar e atualizar" que aparece no menu do dot (clique direito).
+Existem **dois tipos de atualização**, e os apps instalados checam os dois ao abrir e
+a cada 4h:
 
-O plano Spark do Firebase **proíbe `.exe` no Hosting**, então o release é dividido:
+| | Atualização do site | Atualização completa (instalador) |
+|---|---|---|
+| O que muda | `index.html`, `admin.html`, `style.css`, `alert.mp3`, `assets/`, `src/` | qualquer coisa, inclusive `main.js`, `preload.js`, `dot.html`, watchdog, Electron |
+| Como chega | `web-updater.js` baixa só os arquivos alterados (KB) | `electron-updater` baixa o `.exe` inteiro (~84 MB) |
+| Controle de Aplicativo Inteligente do Windows | **não afeta** (nenhum executável roda) | **pode bloquear** — o `.exe` não é assinado |
+| Quando entra | ao reabrir o app, ou "Atualizar agora (recarrega a tela)" no menu do dot | ao fechar o app, ou "Reiniciar e atualizar" no menu do dot |
+| Comando | `npm run release:web` | `npm run release` |
 
-- **Firebase Hosting** (`ota-release/`) — só o `latest.yml`, que é o que os apps
-  consultam. Ele aponta com URL absoluta pro instalador no GitHub.
+**Regra prática:** mudou só coisa da pasta pai (o site)? `npm run release:web`, **sem
+mexer no `version`**. Mudou algo desta pasta `App Nativo` (main.js, preload.js,
+dot.html, installer.nsh, dependências)? Aí sim sobe o `version` e roda
+`npm run release`.
+
+> Por que não subir o `version` à toa: a atualização do site só é aplicada em apps
+> com **exatamente a mesma versão** com que foi publicada. Se você lançar a 1.0.4 e
+> algum PC ficar preso na 1.0.3 (instalador barrado pelo Windows), esse PC para de
+> receber atualizações do site até conseguir instalar a 1.0.4.
+
+### Onde fica cada coisa
+
+A URL `https://sundrowsy-db163.web.app/` fica gravada em cada instalação
+(`resources/app-update.yml` e `web-updater.js`), então **não pode mudar**. O plano
+Spark do Firebase **proíbe `.exe` no Hosting**, então:
+
+- **Firebase Hosting** (`ota-release/`):
+  - `latest.yml` — o que o `electron-updater` consulta; aponta com URL absoluta pro
+    instalador no GitHub.
+  - `web/manifest.json` + `web/manifest.sig` — lista de arquivos do site com sha256,
+    assinada; `web/<buildId>/…` — os arquivos em si.
 - **GitHub Releases** (`dist_github/`) — o instalador `SunDrowsy-Setup-<versão>.exe`
   + `.blockmap`, anexados na release `v<versão>` de `NadrjMV/SunDrowsy`.
 
-### Publicar uma versão nova
+### Publicar só o site (o caso comum)
 
-1. Suba o `version` no `package.json` (e no `package-lock.json`) — sem isso os apps
-   instalados não enxergam como atualização.
+```bash
+npm run release:web
+```
+
+Faz `prepare-web` (monta e **assina** `ota-release/web/`) → `firebase deploy`. Não
+precisa de commit antes (mas commite depois, pra o git refletir o que está no ar).
+Se o `ota-release/latest.yml` não existir localmente, o script baixa o que está no ar
+pra o deploy não apagá-lo.
+
+### Publicar uma versão nova do app (instalador)
+
+1. Suba o `version` no `package.json` (e no `package-lock.json`).
 2. Commit **e push** (a tag da GitHub Release é criada em cima do `main` remoto).
-3. Rode (precisa do `gh` e do `firebase` CLI logados):
+3. Rode (precisa do `gh` e do `firebase` CLI logados, e da chave de assinatura):
 
 ```bash
 npm run release
 ```
 
-Isso faz `dist` → `prepare-ota` (monta `ota-release/` e `dist_github/`) →
-`publish-github` (cria a release no GitHub) → `firebase deploy --only hosting`. O
+Faz `dist` → `prepare-ota` (monta `ota-release/` e `dist_github/`) → `prepare-web`
+→ `publish-github` (cria a release no GitHub) → `firebase deploy --only hosting`. O
 GitHub vem antes do Firebase de propósito: o `latest.yml` nunca fica no ar apontando
 pra um instalador que ainda não existe.
 
 `ota-release/`, `dist*/`, `scripts/` e os arquivos do Firebase ficam fora do
 `app.asar` (ver `build.files`) — se não, o instalador anterior é empacotado dentro do
 novo e o tamanho dobra.
+
+### Segurança da atualização do site
+
+Baixar código e rodar no app é, por definição, uma porta de entrada — então:
+
+- O `manifest.json` é **assinado com Ed25519**. O app só aceita se a assinatura bater
+  com a chave pública embutida em `web-updater.js`. Senha do Firebase ou do GitHub
+  **não basta** pra publicar algo que os apps aceitem.
+- Cada arquivo é conferido por sha256 ao baixar **e a cada abertura do app**. Se
+  alguém editar os arquivos baixados (ficam em `%APPDATA%\sundrowsy-native\web-live`,
+  gravável pelo usuário), o app descarta e volta pros arquivos do instalador (em
+  Program Files, que usuário comum não consegue alterar).
+- Manifest com data mais antiga que a atual é recusado (não dá pra "voltar" o app pra
+  uma versão velha reenviando um manifest antigo).
+- Só são aceitos caminhos simples (sem `..`); nada é executado fora da página.
+
+### ⚠️ Cuidados com a chave de assinatura
+
+A chave privada fica em **`%USERPROFILE%\.sundrowsy\web-update-key.pem`** (fora do
+projeto de propósito — nunca vai pro git nem pro instalador). O `prepare-web` também
+aceita outro caminho via variável `SUNDROWSY_WEB_KEY`.
+
+- **Faça backup** da pasta `.sundrowsy` num lugar seguro (gerenciador de senhas,
+  pendrive guardado). Se perder: não dá mais pra publicar atualização do site até sair
+  um instalador novo com outra chave (gerar par novo + trocar a `PUBLIC_KEY` em
+  `web-updater.js` + `npm run release`) — e PCs que não conseguirem instalar esse
+  instalador ficam sem atualização do site.
+- **Nunca compartilhe, commite ou mande esse arquivo** (e-mail, WhatsApp, drive
+  compartilhado). Quem tiver ele consegue publicar código que roda no app de todos os
+  vigias — desde que também tenha acesso ao Firebase pra fazer o deploy.
+- Se desconfiar que vazou: gere uma chave nova, troque a `PUBLIC_KEY`, publique um
+  instalador novo e, até ele chegar em todos, fique de olho no Firebase Hosting
+  (histórico de deploys no console).
+- Trocou de PC pra publicar? Copie a pasta `.sundrowsy` pro novo usuário.
+- O script confere se a chave privada bate com a pública embutida antes de publicar —
+  se aparecer "A chave privada NÃO corresponde", você está com a chave errada.
 
 ## App obrigatório: auto-start, watchdog e trava de saída
 
@@ -115,6 +183,10 @@ de verdade — testar manualmente):
 - `preload.js` — expõe `window.electronAPI` de forma segura (contextIsolation)
   pras páginas web usarem sem ter acesso direto ao Node.
 - `dot.html` — a janela pequena, sem moldura, sempre no topo, arrastável.
+- `web-updater.js` — atualização só dos arquivos do site, sem instalador (ver
+  "Atualização automática").
+- `scripts/prepare-ota.js` / `scripts/prepare-web.js` — montam o que vai pro
+  Firebase/GitHub no release.
 - `build/installer.nsh` — script NSIS customizado: instala/remove o watchdog
   (Tarefa Agendada) junto com o app.
 - `src/detector.js` (na pasta pai) tem uma linha adicional que chama

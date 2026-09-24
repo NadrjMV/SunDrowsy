@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const loudness = require('loudness');
 const { autoUpdater } = require('electron-updater');
+const webUpdater = require('./web-updater');
 
 // --- ATUALIZAÇÃO AUTOMÁTICA (OTA) ---
 // Busca por versão nova no Firebase Hosting, que aponta pro instalador na GitHub Release (ver README e
@@ -24,7 +25,13 @@ function initAutoUpdater() {
         console.error('Erro no auto-updater:', err.message);
     });
 
-    const check = () => autoUpdater.checkForUpdates().catch((err) => console.error('Erro ao checar atualização:', err.message));
+    // Checa as duas: o instalador completo (pode ser barrado pelo Controle de Aplicativo
+    // Inteligente do Windows, por não ser assinado) e só os arquivos do site (web-updater.js,
+    // que não roda executável nenhum). Ver README > Atualização automática.
+    const check = () => {
+        autoUpdater.checkForUpdates().catch((err) => console.error('Erro ao checar atualização:', err.message));
+        webUpdater.checkForUpdate();
+    };
     check();
     // O app fica rodando por dias (é um monitoramento contínuo) — checa de novo
     // periodicamente, não só na abertura.
@@ -37,9 +44,18 @@ const MIN_ALERT_VOLUME = 65;
 
 // Em dev, os arquivos do site ficam na pasta pai do projeto.
 // Empacotado (instalado), o electron-builder copia tudo pra resources/web (ver package.json > extraResources).
-const basePath = app.isPackaged
-    ? path.join(process.resourcesPath, 'web')
-    : path.join(__dirname, '..');
+// Empacotado, o web-updater pode trocar essa pasta por uma versão mais nova baixada
+// em userData (ver web-updater.js) — por isso o servidor pergunta a pasta a cada request.
+const getBasePath = app.isPackaged
+    ? (() => {
+        webUpdater.init({
+            bundledDir: path.join(process.resourcesPath, 'web'),
+            userDataDir: app.getPath('userData'),
+            appVersion: app.getVersion(),
+        });
+        return () => webUpdater.getActiveDir();
+    })()
+    : () => path.join(__dirname, '..');
 
 const MIME_TYPES = {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript',
@@ -113,10 +129,11 @@ function startLocalServer(port) {
         const server = http.createServer((req, res) => {
             let reqPath = decodeURIComponent(req.url.split('?')[0]);
             if (reqPath === '/') reqPath = '/index.html';
+            const basePath = getBasePath();
             const filePath = path.normalize(path.join(basePath, reqPath));
 
             // Nunca serve nada fora da pasta do site (proteção básica de path traversal)
-            if (!filePath.startsWith(path.normalize(basePath))) {
+            if (!filePath.startsWith(path.normalize(basePath) + path.sep)) {
                 res.writeHead(403); res.end('Forbidden'); return;
             }
 
@@ -220,6 +237,16 @@ function createDotWindow() {
             template.push({
                 label: 'Reiniciar e atualizar',
                 click: () => { writeStateFile(true); isQuitting = true; autoUpdater.quitAndInstall(); },
+            });
+        }
+        if (webUpdater.hasStagedUpdate()) {
+            // Atualização só do site: não fecha o app, só recarrega a tela principal.
+            template.push({ type: 'separator' });
+            template.push({
+                label: 'Atualizar agora (recarrega a tela)',
+                click: () => {
+                    if (webUpdater.applyStaged() && mainWindow) mainWindow.webContents.reloadIgnoringCache();
+                },
             });
         }
         template.push({ type: 'separator' });

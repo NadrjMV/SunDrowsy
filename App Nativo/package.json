@@ -1,6 +1,6 @@
 {
   "name": "sundrowsy-native",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "SunDrowsy - versao nativa para Windows (app + dot flutuante de status)",
   "main": "main.js",
   "author": "jordanlvs",
@@ -11,7 +11,9 @@
     "dist": "electron-builder --publish never",
     "prepare-ota": "node scripts/prepare-ota.js",
     "publish-github": "node -e \"const v=require('./package.json').version;require('child_process').execSync('gh release create v'+v+' dist_github/SunDrowsy-Setup-'+v+'.exe dist_github/SunDrowsy-Setup-'+v+'.exe.blockmap --title v'+v+' --notes \\\"SunDrowsy '+v+'\\\"',{stdio:'inherit'})\"",
-    "release": "npm run dist && npm run prepare-ota && npm run publish-github && firebase deploy --only hosting"
+    "prepare-web": "node scripts/prepare-web.js",
+    "release": "npm run dist && npm run prepare-ota && npm run prepare-web && npm run publish-github && firebase deploy --only hosting",
+    "release:web": "npm run prepare-web && firebase deploy --only hosting"
   },
   "devDependencies": {
     "electron": "^33.0.0",
