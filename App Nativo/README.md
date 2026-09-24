@@ -36,6 +36,41 @@ elevação (UAC) uma vez. Isso é necessário pro watchdog (ver abaixo) rodar co
 SYSTEM — sem isso, uma conta padrão de vigia conseguiria simplesmente apagar a
 tarefa agendada.
 
+## Atualização automática (OTA)
+
+Os apps instalados checam atualização ao abrir e a cada 4h (`electron-updater`,
+provider `generic` apontando pra `https://sundrowsy-db163.web.app/` — essa URL fica
+gravada no `resources/app-update.yml` de cada instalação, então **não pode mudar**).
+A versão nova baixa em segundo plano e é instalada quando o app fecha, ou pelo item
+"Reiniciar e atualizar" que aparece no menu do dot (clique direito).
+
+O plano Spark do Firebase **proíbe `.exe` no Hosting**, então o release é dividido:
+
+- **Firebase Hosting** (`ota-release/`) — só o `latest.yml`, que é o que os apps
+  consultam. Ele aponta com URL absoluta pro instalador no GitHub.
+- **GitHub Releases** (`dist_github/`) — o instalador `SunDrowsy-Setup-<versão>.exe`
+  + `.blockmap`, anexados na release `v<versão>` de `NadrjMV/SunDrowsy`.
+
+### Publicar uma versão nova
+
+1. Suba o `version` no `package.json` (e no `package-lock.json`) — sem isso os apps
+   instalados não enxergam como atualização.
+2. Commit **e push** (a tag da GitHub Release é criada em cima do `main` remoto).
+3. Rode (precisa do `gh` e do `firebase` CLI logados):
+
+```bash
+npm run release
+```
+
+Isso faz `dist` → `prepare-ota` (monta `ota-release/` e `dist_github/`) →
+`publish-github` (cria a release no GitHub) → `firebase deploy --only hosting`. O
+GitHub vem antes do Firebase de propósito: o `latest.yml` nunca fica no ar apontando
+pra um instalador que ainda não existe.
+
+`ota-release/`, `dist*/`, `scripts/` e os arquivos do Firebase ficam fora do
+`app.asar` (ver `build.files`) — se não, o instalador anterior é empacotado dentro do
+novo e o tamanho dobra.
+
 ## App obrigatório: auto-start, watchdog e trava de saída
 
 Como o app é obrigatório pra quem está de vigia, três mecanismos garantem que ele

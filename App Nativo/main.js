@@ -6,7 +6,7 @@ const loudness = require('loudness');
 const { autoUpdater } = require('electron-updater');
 
 // --- ATUALIZAÇÃO AUTOMÁTICA (OTA) ---
-// Busca por versão nova no Firebase Hosting (ver package.json > build.publish e
+// Busca por versão nova no Firebase Hosting, que aponta pro instalador na GitHub Release (ver README e
 // "npm run release" na pasta App Nativo). Baixa sozinho em segundo plano; a troca de
 // verdade só acontece quando o app fecha (autoInstallOnAppQuit) ou quando alguém
 // escolhe "Reiniciar e atualizar" no menu do dot — nunca no meio de um monitoramento.
