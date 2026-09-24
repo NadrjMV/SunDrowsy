@@ -1,12 +1,19 @@
-// Prepara a pasta que vai pro Firebase Hosting (ota-release/) com os arquivos da
-// versão recém-compilada pelo electron-builder (dist/), e apaga o que tinha antes —
-// assim cada "npm run release" só deixa a versão mais nova disponível pra atualizar,
-// sem versões antigas acumulando no Hosting.
+// Prepara o OTA a partir da versão recém-compilada pelo electron-builder (dist/).
+//
+// O plano Spark do Firebase proíbe .exe no Hosting, então o release fica dividido:
+//   - ota-release/  -> só o latest.yml, vai pro Firebase Hosting (é onde os apps
+//                      instalados procuram atualização — URL fixa no app-update.yml).
+//   - dist_github/  -> instalador + blockmap, anexados na GitHub Release v<versão>.
+// O latest.yml aponta com URL absoluta pro .exe na GitHub Release.
+// Os nomes trocam espaço por hífen porque o GitHub renomeia assets com espaço.
 const fs = require('fs');
 const path = require('path');
+const { version } = require('../package.json');
 
 const DIST_DIR = path.join(__dirname, '..', 'dist');
 const OTA_DIR = path.join(__dirname, '..', 'ota-release');
+const GH_DIR = path.join(__dirname, '..', 'dist_github');
+const GH_REPO = 'NadrjMV/SunDrowsy';
 
 function clearDir(dir) {
     if (fs.existsSync(dir)) {
@@ -16,29 +23,31 @@ function clearDir(dir) {
 }
 
 function main() {
-    if (!fs.existsSync(DIST_DIR)) {
-        console.error('Pasta dist/ não encontrada. Rode "npm run dist" antes.');
+    const setupName = `SunDrowsy Setup ${version}.exe`;
+    const assetName = `SunDrowsy-Setup-${version}.exe`;
+    const setupPath = path.join(DIST_DIR, setupName);
+    const ymlPath = path.join(DIST_DIR, 'latest.yml');
+
+    if (!fs.existsSync(setupPath) || !fs.existsSync(ymlPath)) {
+        console.error(`"${setupName}" ou latest.yml não encontrados em dist/. Rode "npm run dist" antes.`);
         process.exit(1);
     }
 
     clearDir(OTA_DIR);
+    clearDir(GH_DIR);
 
-    const files = fs.readdirSync(DIST_DIR);
-    const toCopy = files.filter(f =>
-        f === 'latest.yml' || f.endsWith('.exe') || f.endsWith('.exe.blockmap')
-    );
-
-    if (toCopy.length === 0) {
-        console.error('Nenhum arquivo de release encontrado em dist/ (latest.yml / .exe). Build falhou?');
-        process.exit(1);
+    fs.copyFileSync(setupPath, path.join(GH_DIR, assetName));
+    if (fs.existsSync(setupPath + '.blockmap')) {
+        fs.copyFileSync(setupPath + '.blockmap', path.join(GH_DIR, assetName + '.blockmap'));
     }
 
-    for (const file of toCopy) {
-        fs.copyFileSync(path.join(DIST_DIR, file), path.join(OTA_DIR, file));
-        console.log(`  copiado: ${file}`);
-    }
+    const assetUrl = `https://github.com/${GH_REPO}/releases/download/v${version}/${assetName}`;
+    const yml = fs.readFileSync(ymlPath, 'utf8').split(setupName).join(assetUrl);
+    fs.writeFileSync(path.join(OTA_DIR, 'latest.yml'), yml);
 
-    console.log(`\nOTA preparado em ota-release/ (${toCopy.length} arquivo(s)). Versões antigas removidas.`);
+    console.log(`OTA v${version} preparado:`);
+    console.log(`  ota-release/latest.yml -> ${assetUrl}`);
+    console.log(`  dist_github/${assetName} (+ blockmap) pra GitHub Release`);
 }
 
 main();

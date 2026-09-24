@@ -10,7 +10,8 @@
     "start": "electron .",
     "dist": "electron-builder --publish never",
     "prepare-ota": "node scripts/prepare-ota.js",
-    "release": "npm run dist && npm run prepare-ota && firebase deploy --only hosting"
+    "publish-github": "node -e \"const v=require('./package.json').version;require('child_process').execSync('gh release create v'+v+' dist_github/SunDrowsy-Setup-'+v+'.exe dist_github/SunDrowsy-Setup-'+v+'.exe.blockmap --title v'+v+' --notes \\\"SunDrowsy '+v+'\\\"',{stdio:'inherit'})\"",
+    "release": "npm run dist && npm run prepare-ota && npm run publish-github && firebase deploy --only hosting"
   },
   "devDependencies": {
     "electron": "^33.0.0",
@@ -24,6 +25,11 @@
       "**/*",
       "!dist*/**",
       "!build/**",
+      "!ota-release/**",
+      "!scripts/**",
+      "!.firebase/**",
+      "!.firebaserc",
+      "!firebase.json",
       "!node_modules/electron/**",
       "!node_modules/electron-builder/**",
       "!node_modules/.bin/**",
