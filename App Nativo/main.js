@@ -18,7 +18,34 @@ function logFilePath() {
     return path.join(LOG_DIR, `sundrowsy-${new Date().toISOString().slice(0, 10)}.log`);
 }
 
-function writeLog(level, source, message, extra) {
+// Eventos do próprio processo principal (travamento, crash...) também vão pra tela,
+// que sobe warn/error pro painel admin (ver src/error-logger.js). Se a tela estiver
+// morta/travada na hora, ficam na fila e são entregues quando ela voltar.
+let rendererReady = false;
+let rendererHung = false; // mensagens pra uma tela travada podem se perder se ela for derrubada
+const pendingForRenderer = [];
+
+function forwardToRenderer(entry) {
+    if (rendererReady && !rendererHung && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('sundrowsy:main-log', entry);
+    } else {
+        pendingForRenderer.push(entry);
+        if (pendingForRenderer.length > 50) pendingForRenderer.shift();
+    }
+}
+
+function flushPendingForRenderer() {
+    while (pendingForRenderer.length && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('sundrowsy:main-log', pendingForRenderer.shift());
+    }
+}
+
+function writeLog(level, source, message, extra, { forward = true } = {}) {
+    if (forward && !source.startsWith('TELA/')) {
+        try {
+            forwardToRenderer({ ts: new Date().toISOString(), level, source, message, extra: extra ? String(extra) : undefined });
+        } catch { /* erro antes da janela existir */ }
+    }
     const line = `${new Date().toISOString()} ${String(level).toUpperCase().padEnd(5)} [${source}] ${message}` +
         (extra ? `\n    ${String(extra).replace(/\n/g, '\n    ')}` : '') + '\n';
     try {
@@ -239,28 +266,56 @@ function createMainWindow() {
     // também chega por lá, com stack — por isso é ignorado aqui).
     mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
         if (level < 2 || message.startsWith('Uncaught')) return; // 2 = warning, 3 = error
-        writeLog(level === 3 ? 'error' : 'warn', 'CONSOLE', message, sourceId ? `${sourceId}:${line}` : undefined);
+        // Só console.error sobe pro admin; console.warn fica só no arquivo (tem aviso
+        // normal de funcionamento, tipo "página inativa").
+        writeLog(level === 3 ? 'error' : 'warn', 'CONSOLE', message, sourceId ? `${sourceId}:${line}` : undefined, { forward: level === 3 });
     });
 
     // "Não está respondendo": a thread da tela ficou presa por vários segundos.
+    // Se não voltar sozinha em UNRESPONSIVE_RELOAD_MS, derruba e recarrega a tela — um
+    // monitoramento de fadiga congelado é pior que uma tela recarregando (a sessão de
+    // login é mantida).
+    const UNRESPONSIVE_RELOAD_MS = 60000;
     let unresponsiveSince = null;
+    let unresponsiveTimer = null;
     mainWindow.on('unresponsive', () => {
         unresponsiveSince = Date.now();
+        rendererHung = true;
         writeLog('error', 'FREEZE', 'Janela principal parou de responder (app travado)');
+        clearTimeout(unresponsiveTimer);
+        unresponsiveTimer = setTimeout(() => {
+            if (!mainWindow || mainWindow.isDestroyed() || !unresponsiveSince) return;
+            writeLog('error', 'FREEZE', `Janela travada há ${UNRESPONSIVE_RELOAD_MS / 1000}s — recarregando à força`);
+            mainWindow.webContents.forcefullyCrashRenderer();
+        }, UNRESPONSIVE_RELOAD_MS);
     });
     mainWindow.on('responsive', () => {
+        clearTimeout(unresponsiveTimer);
         const secs = unresponsiveSince ? Math.round((Date.now() - unresponsiveSince) / 1000) : '?';
         unresponsiveSince = null;
-        writeLog('warn', 'FREEZE', `Janela principal voltou a responder depois de ~${secs}s`);
+        rendererHung = false;
+        writeLog('warn', 'FREEZE', `Janela principal ficou travada por ~${secs}s e voltou a responder`);
+        flushPendingForRenderer();
     });
 
     // A tela inteira morreu (crash, falta de memória, GPU): recarrega pra não deixar o
     // vigia sem monitoramento com uma tela branca/congelada.
     mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        rendererReady = false;
+        clearTimeout(unresponsiveTimer);
+        unresponsiveSince = null;
         writeLog('error', 'CRASH', `Processo da tela encerrou: ${details.reason} (código ${details.exitCode})`);
         if (details.reason !== 'clean-exit' && mainWindow && !mainWindow.isDestroyed()) {
             setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); }, 1000);
         }
+    });
+    // A tela (app.js) registra o listener de 'sundrowsy:main-log' ao carregar; só a
+    // partir daí dá pra entregar o que ficou na fila.
+    mainWindow.webContents.on('did-start-loading', () => { rendererReady = false; });
+    mainWindow.webContents.on('did-finish-load', () => {
+        rendererReady = true;
+        rendererHung = false;
+        flushPendingForRenderer();
     });
     mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
         writeLog('error', 'LOAD', `Falha ao carregar ${url}: ${description} (${code})`);
@@ -385,7 +440,8 @@ if (!gotLock) {
         startHeartbeat();
         pruneOldLogs();
         writeLog('info', 'MAIN', `SunDrowsy ${app.getVersion()} iniciado`);
-        if (pendingCrashReport) writeLog('warn', 'MAIN', 'A execução anterior foi encerrada de forma anormal');
+        // 'info': o fechamento indevido já vira APP_KILLED_UNEXPECTEDLY na auditoria.
+        if (pendingCrashReport) writeLog('info', 'MAIN', 'A execução anterior foi encerrada de forma anormal');
 
         // Crash da GPU/utilitários trava a imagem (WebGL do MediaPipe roda na GPU).
         app.on('child-process-gone', (_event, details) => {

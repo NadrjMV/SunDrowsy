@@ -1,4 +1,4 @@
-import { installErrorLogger, logEvent } from './error-logger.js';
+import { installErrorLogger, logEvent, setErrorUploader, flushUploads } from './error-logger.js';
 import { auth, googleProvider, db } from './firebase-config.js';
 import { AudioManager } from './audio-manager.js';
 import { DrowsinessDetector } from './detector.js'; 
@@ -177,7 +177,7 @@ if (formEmailLogin) {
             await auth.signInWithEmailAndPassword(email, password);
         }
     } catch (error) {
-        logEvent('error', 'AUTH', `Falha no login por e-mail (${error.code || 'sem código'})`, error);
+        logEvent(authErrorLevel(error), 'AUTH', `Falha no login por e-mail (${error.code || 'sem código'})`, error);
         showToast("Erro: " + error.message);
         isIntentionalLogin = false;
         resetLoginButton();
@@ -268,6 +268,46 @@ function logSystemEvent(uid, userName, role, type, reason) {
         userName: userName || 'Usuário',
         uid,
     }).catch(e => console.error(`❌ Erro ao salvar log (${type}):`, e));
+}
+
+// --- ERROS / TRAVAMENTOS → PAINEL ADMIN ---
+// Todo warn/error do error-logger.js sobe pra mesma coleção da auditoria, com
+// type APP_ERROR (aparece em Auditoria > "Erro / travamento" no admin). O id é fixo
+// por erro, então um reenvio após timeout não duplica.
+const ERROR_UPLOAD_TIMEOUT_MS = 15000;
+setErrorUploader(async (item) => {
+    const user = auth.currentUser;
+    if (!user || !navigator.onLine) return false;
+    const write = db.collection('logs').doc(user.uid).collection('logs').doc(`err_${item.id}`).set({
+        timestamp: new Date(item.ts),
+        type: 'APP_ERROR',
+        severity: item.severity,
+        source: item.source,
+        reason: item.message,
+        details: item.details || '',
+        trail: item.trail || '',
+        role: detector ? detector.config.role : 'DESCONHECIDO',
+        userName: user.displayName || user.email || 'Usuário',
+        uid: user.uid,
+        appVersion: APP_CONFIG.VERSION,
+        platform: window.electronAPI?.isElectron ? 'App nativo' : 'Navegador',
+    });
+    const timeout = new Promise((resolve) => setTimeout(() => resolve(false), ERROR_UPLOAD_TIMEOUT_MS));
+    // permission-denied (ex.: reenvio de um doc que já subiu, se as regras não
+    // permitirem update) descarta o item em vez de travar a fila pra sempre.
+    const done = write.then(() => true, (err) => {
+        console.log('[SD-LOG] Falha ao enviar erro pro admin:', err?.code || err);
+        return err?.code === 'permission-denied';
+    });
+    return Promise.race([done, timeout]);
+});
+
+// Erros de login que são do usuário (senha errada, fechou o popup) não são falha do app —
+// ficam só no log local, sem virar alerta no admin.
+const USER_AUTH_ERRORS = ['auth/wrong-password', 'auth/invalid-credential', 'auth/user-not-found', 'auth/invalid-email',
+    'auth/popup-closed-by-user', 'auth/cancelled-popup-request', 'auth/too-many-requests', 'auth/email-already-in-use', 'auth/weak-password'];
+function authErrorLevel(error) {
+    return USER_AUTH_ERRORS.includes(error?.code) ? 'info' : 'error';
 }
 
 // --- APP OBRIGATÓRIO (versão nativa/Electron) ---
@@ -373,7 +413,7 @@ document.getElementById('btn-google-login').addEventListener('click', () => {
     isIntentionalLogin = true;
     logEvent('info', 'AUTH', 'Login com Google iniciado');
     auth.signInWithPopup(googleProvider).catch((error) => {
-        logEvent('error', 'AUTH', `Falha no login com Google (${error.code || 'sem código'})`, error);
+        logEvent(authErrorLevel(error), 'AUTH', `Falha no login com Google (${error.code || 'sem código'})`, error);
         showToast("Erro no login: " + error.message);
         isIntentionalLogin = false;
     });
@@ -496,6 +536,7 @@ auth.onAuthStateChanged(async (user) => {
             clearTimeout(slowTimer);
             logEvent('info', 'AUTH', `Login concluído em ${Math.round(performance.now() - authStartedAt)}ms`);
             resetLoginButton(); // deixa pronto pro próximo login (após um logout)
+            flushUploads(); // sobe erros que ficaram na fila (ex.: travou/crashou antes do login)
 
             // Transição para LGPD ou APP
             if (!userData.lgpdAccepted) {
@@ -510,7 +551,9 @@ auth.onAuthStateChanged(async (user) => {
 
         } catch (error) {
             clearTimeout(slowTimer);
-            logEvent('error', 'AUTH', `Falha ao ${authStep}`, error);
+            // "⛔ ..." são bloqueios de regra (conta desativada, sem convite), não falha do app.
+            const blocked = String(error?.message || '').startsWith('⛔');
+            logEvent(blocked ? 'info' : 'error', 'AUTH', `Falha ao ${authStep}`, error);
             showToast(error.message);
             resetLoginButton();
             auth.signOut().catch((e) => logEvent('error', 'AUTH', 'Falha no signOut', e));

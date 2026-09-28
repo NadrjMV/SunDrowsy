@@ -130,6 +130,7 @@ auth.onAuthStateChanged(async (user) => {
         // ADMIN não vê nem a aba, nem consegue carregar os dados.
         const navAuditBtn = document.getElementById('nav-audit-btn');
         if (navAuditBtn) navAuditBtn.style.display = window.isSystemOwner ? '' : 'none';
+        watchAppErrors();
 
         // Foto do admin no header
         const headerPhoto = document.getElementById('admin-photo');
@@ -562,7 +563,8 @@ function filterAndRenderLogs() {
 }
 
 // Eventos de sessão/app: vão pra página de Auditoria, não pra tabela de segurança.
-const AUDIT_TYPES = ['LOGIN', 'LOGOUT', 'APP_OPEN', 'APP_QUIT', 'APP_CLOSE_ATTEMPT_DENIED', 'APP_KILLED_UNEXPECTEDLY'];
+// APP_ERROR = erro/travamento enviado sozinho pelo app (src/error-logger.js).
+const AUDIT_TYPES = ['LOGIN', 'LOGOUT', 'APP_OPEN', 'APP_QUIT', 'APP_CLOSE_ATTEMPT_DENIED', 'APP_KILLED_UNEXPECTEDLY', 'APP_ERROR'];
 
 function processLogs(rawLogs) {
     const logs = rawLogs.filter(l => !AUDIT_TYPES.includes(l.type));
@@ -1779,8 +1781,36 @@ const AUDIT_TYPE_LABELS = {
     APP_QUIT: 'Saiu do app',
     APP_CLOSE_ATTEMPT_DENIED: 'Tentativa de sair negada',
     APP_KILLED_UNEXPECTEDLY: 'Fechamento indevido',
+    APP_ERROR: 'Erro / travamento',
 };
-const AUDIT_WARNING_TYPES = ['APP_CLOSE_ATTEMPT_DENIED', 'APP_KILLED_UNEXPECTEDLY'];
+const AUDIT_WARNING_TYPES = ['APP_CLOSE_ATTEMPT_DENIED', 'APP_KILLED_UNEXPECTEDLY', 'APP_ERROR'];
+
+// De onde veio o erro (campo "source" do error-logger.js / main.js), em português.
+const ERROR_SOURCE_LABELS = {
+    FREEZE: 'Janela travou', CRASH: 'Crash', UI: 'Interface travou', MEDIAPIPE: 'Imagem/IA',
+    CAMERA: 'Câmera', AUTH: 'Login', JS: 'Erro de código', PROMISE: 'Erro de código',
+    CONSOLE: 'Erro', RECURSO: 'Falha de download', LOAD: 'Falha ao carregar', MAIN: 'App nativo', UPDATER: 'Atualização',
+};
+
+function escapeHtml(text) {
+    return String(text ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Célula "Detalhes" de um APP_ERROR: mensagem + (expandível) detalhes técnicos e o
+// rastro — o que o app registrou logo antes do erro, pra entender como travou.
+function renderAppErrorDetails(log) {
+    const source = String(log.source || '').replace(/^TELA\//, '');
+    const sourceLabel = ERROR_SOURCE_LABELS[source] || source || 'Erro';
+    const meta = [log.severity === 'warn' ? 'Aviso' : 'Erro', log.platform, log.appVersion ? `v${log.appVersion}` : null]
+        .filter(Boolean).join(' · ');
+    const details = log.details ? `<h4>Detalhes técnicos</h4><pre>${escapeHtml(log.details)}</pre>` : '';
+    const trail = log.trail ? `<h4>O que aconteceu antes</h4><pre>${escapeHtml(log.trail)}</pre>` : '';
+    return `
+        <div><strong style="color: var(--text-primary);">${escapeHtml(sourceLabel)}:</strong> ${escapeHtml(log.reason || '')}</div>
+        <div style="font-size: 0.72rem; opacity: 0.7;">${escapeHtml(meta)}</div>
+        ${(details || trail) ? `<details class="audit-error-details"><summary>Ver como travou</summary>${details}${trail}</details>` : ''}
+    `;
+}
 
 let auditLastDoc = null;
 let auditHasMore = true;
@@ -1838,7 +1868,7 @@ function renderAuditRows(rows, append) {
                     </div>
                 </td>
                 <td><span class="badge" style="${badgeStyle}">${eventLabel}</span></td>
-                <td style="font-size: 0.85rem; color: var(--text-muted);">${log.reason || ''}</td>
+                <td style="font-size: 0.85rem; color: var(--text-muted);">${log.type === 'APP_ERROR' ? renderAppErrorDetails(log) : (log.reason || '')}</td>
             </tr>
         `;
     }).join('');
@@ -1898,6 +1928,48 @@ if (auditUserFilter) {
 }
 if (auditTypeFilter) {
     auditTypeFilter.addEventListener('change', () => loadAuditPage(true));
+}
+
+// --- ALERTA DE ERROS/TRAVAMENTOS DO APP (só OWNER) ---
+// Contador em tempo real no botão Auditoria com os APP_ERROR das últimas 24h, e um
+// aviso na tela quando chega um novo com o painel aberto. Clicar no contador abre a
+// Auditoria já filtrada em "Erro / travamento".
+const auditErrorBadge = document.getElementById('audit-error-badge');
+let appErrorUnsub = null;
+
+function watchAppErrors() {
+    if (!window.isSystemOwner || appErrorUnsub || !auditErrorBadge) return;
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    let firstSnapshot = true;
+    appErrorUnsub = db.collectionGroup('logs')
+        .where('type', '==', 'APP_ERROR')
+        .where('timestamp', '>=', since)
+        .orderBy('timestamp', 'desc')
+        .limit(99)
+        .onSnapshot((snap) => {
+            const count = snap.size;
+            auditErrorBadge.textContent = count >= 99 ? '99+' : String(count);
+            auditErrorBadge.classList.toggle('hidden', count === 0);
+
+            if (!firstSnapshot) {
+                snap.docChanges().filter(c => c.type === 'added').forEach(c => {
+                    const d = c.doc.data();
+                    const who = localUsersList.find(u => u.uid === d.uid)?.displayName || d.userName || 'Usuário';
+                    showToast(`⚠️ Erro no app de ${who}: ${d.reason || 'travamento'}`);
+                });
+            }
+            firstSnapshot = false;
+        }, (error) => {
+            console.error('❌ Erro ao observar erros do app (pode faltar índice composto type+timestamp no Firestore — veja o link no erro):', error);
+        });
+}
+
+if (auditErrorBadge) {
+    auditErrorBadge.addEventListener('click', () => {
+        if (auditTypeFilter) auditTypeFilter.value = 'APP_ERROR';
+        auditLoadedOnce = true;
+        loadAuditPage(true);
+    });
 }
 
 // Só busca a primeira página quando a aba de Auditoria é aberta por bem — e só uma

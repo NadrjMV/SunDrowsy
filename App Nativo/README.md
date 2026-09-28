@@ -192,6 +192,23 @@ branca), cada PC grava um log por dia em `%APPDATA%\SunDrowsy\logs\`
 No navegador (ou num app nativo 1.0.3, que ainda não tem o IPC de log), as últimas
 300 entradas ficam no `localStorage` — abra o console e rode `sdDumpLogs()`.
 
+### Erros sobem sozinhos pro painel admin
+
+Todo **aviso/erro** (não os `info`) sobe pro Firestore em `logs/{uid}/logs` com
+`type: 'APP_ERROR'` e aparece no admin em **Auditoria** (filtro "Erro / travamento").
+O botão Auditoria mostra um contador vermelho com os erros das últimas 24h e, com o
+painel aberto, chega um aviso na hora. Em cada erro, **"Ver como travou"** mostra os
+detalhes técnicos e as ~25 entradas anteriores do log (o rastro até o problema).
+
+- Sem internet ou deslogado: fica numa fila local e sobe quando der (inclusive
+  travamentos/crash da tela, que o `main.js` guarda e entrega quando a tela volta).
+- Pra não gastar escrita: a mesma mensagem sobe no máximo 1x a cada 10 min, e no
+  máximo 30 por hora por PC. Senha errada / popup fechado não sobem.
+- Janela "Não está respondendo" por 60s: o app derruba e recarrega a tela sozinho.
+- Precisa do índice composto do Firestore **collection group `logs`: `type` ASC +
+  `timestamp` DESC** (o mesmo da Auditoria). Se faltar, o console do admin mostra o
+  link pra criar.
+
 ## Estrutura
 
 - `main.js` — processo principal: cria a janela do app e a janela do dot, libera

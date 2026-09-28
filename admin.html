@@ -29,7 +29,7 @@
             <button class="nav-btn active" data-view="dashboard"><span class="material-icons-round">analytics</span> Visão Geral</button>
             <button class="nav-btn" data-view="team"><span class="material-icons-round">people</span> Equipe</button>
             <button class="nav-btn" data-view="reports"><span class="material-icons-round">assessment</span> Relatórios</button>
-            <button class="nav-btn" data-view="audit" id="nav-audit-btn" style="display: none;"><span class="material-icons-round">manage_search</span> Auditoria</button>
+            <button class="nav-btn" data-view="audit" id="nav-audit-btn" style="display: none;"><span class="material-icons-round">manage_search</span> Auditoria <span id="audit-error-badge" class="nav-error-badge hidden" title="Erros/travamentos do app nas últimas 24h"></span></button>
             <button class="nav-btn" data-view="settings"><span class="material-icons-round">settings</span> Configurações</button>
 
             <div style="flex: 1;"></div>
@@ -190,6 +190,7 @@
                             <option value="APP_QUIT">Saiu do app</option>
                             <option value="APP_CLOSE_ATTEMPT_DENIED">Tentativa de sair negada</option>
                             <option value="APP_KILLED_UNEXPECTEDLY">Fechamento indevido</option>
+                            <option value="APP_ERROR">Erro / travamento</option>
                         </select>
                     </div>
                 </header>

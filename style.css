@@ -1325,3 +1325,34 @@ body.admin-page .glass-input:focus { border-color: var(--accent); }
 .camera-menu-item:hover { background: rgba(255,255,255,0.08); }
 .camera-menu-item .material-icons-round { font-size: 16px; color: var(--primary); visibility: hidden; }
 .camera-menu-item.active .material-icons-round { visibility: visible; }
+
+/* Contador de erros/travamentos do app (últimas 24h) no botão Auditoria do admin */
+.nav-error-badge {
+    margin-left: auto;
+    min-width: 20px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-align: center;
+}
+.nav-error-badge.hidden { display: none; }
+
+/* Detalhes de um erro na tabela de Auditoria */
+.audit-error-details summary { cursor: pointer; color: var(--primary); font-size: 0.8rem; margin-top: 4px; }
+.audit-error-details pre {
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 320px;
+    overflow: auto;
+    margin: 6px 0 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: var(--text-secondary);
+}
+.audit-error-details h4 { margin: 10px 0 0; font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; }
