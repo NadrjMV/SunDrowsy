@@ -1,10 +1,46 @@
-const { app, BrowserWindow, ipcMain, session, screen, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, session, screen, Menu, shell } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
 const loudness = require('loudness');
 const { autoUpdater } = require('electron-updater');
 const webUpdater = require('./web-updater');
+
+// --- LOG DE ERROS / TRAVAMENTOS ---
+// Um arquivo por dia em %APPDATA%/SunDrowsy/logs (menu do dot > "Abrir pasta de logs").
+// Recebe: erros da tela (src/error-logger.js via IPC), console.error/warn da tela,
+// "Não está respondendo" do Windows, crash do processo da tela/GPU e erros do próprio
+// processo principal. Guarda só os últimos LOG_KEEP_DAYS dias.
+const LOG_DIR = path.join(app.getPath('userData'), 'logs');
+const LOG_KEEP_DAYS = 14;
+
+function logFilePath() {
+    return path.join(LOG_DIR, `sundrowsy-${new Date().toISOString().slice(0, 10)}.log`);
+}
+
+function writeLog(level, source, message, extra) {
+    const line = `${new Date().toISOString()} ${String(level).toUpperCase().padEnd(5)} [${source}] ${message}` +
+        (extra ? `\n    ${String(extra).replace(/\n/g, '\n    ')}` : '') + '\n';
+    try {
+        fs.mkdirSync(LOG_DIR, { recursive: true });
+        fs.appendFileSync(logFilePath(), line);
+    } catch (err) {
+        console.error('Não foi possível gravar o log:', err.message);
+    }
+}
+
+function pruneOldLogs() {
+    try {
+        const limit = Date.now() - LOG_KEEP_DAYS * 24 * 60 * 60 * 1000;
+        for (const name of fs.readdirSync(LOG_DIR)) {
+            const file = path.join(LOG_DIR, name);
+            if (fs.statSync(file).mtimeMs < limit) fs.unlinkSync(file);
+        }
+    } catch { /* pasta ainda não existe */ }
+}
+
+process.on('uncaughtException', (err) => writeLog('error', 'MAIN', 'Exceção não tratada no processo principal', err.stack || err));
+process.on('unhandledRejection', (reason) => writeLog('error', 'MAIN', 'Promise rejeitada no processo principal', reason?.stack || reason));
 
 // --- ATUALIZAÇÃO AUTOMÁTICA (OTA) ---
 // Busca por versão nova no Firebase Hosting, que aponta pro instalador na GitHub Release (ver README e
@@ -23,6 +59,7 @@ function initAutoUpdater() {
     });
     autoUpdater.on('error', (err) => {
         console.error('Erro no auto-updater:', err.message);
+        writeLog('warn', 'UPDATER', `Erro no auto-updater: ${err.message}`);
     });
 
     // Checa as duas: o instalador completo (pode ser barrado pelo Controle de Aplicativo
@@ -196,6 +233,38 @@ function createMainWindow() {
     });
 
     mainWindow.on('closed', () => { mainWindow = null; });
+
+    // --- LOGS DE TRAVAMENTO DA JANELA PRINCIPAL ---
+    // console.error/warn da tela (os do error-logger.js chegam pelo IPC; "Uncaught ..."
+    // também chega por lá, com stack — por isso é ignorado aqui).
+    mainWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+        if (level < 2 || message.startsWith('Uncaught')) return; // 2 = warning, 3 = error
+        writeLog(level === 3 ? 'error' : 'warn', 'CONSOLE', message, sourceId ? `${sourceId}:${line}` : undefined);
+    });
+
+    // "Não está respondendo": a thread da tela ficou presa por vários segundos.
+    let unresponsiveSince = null;
+    mainWindow.on('unresponsive', () => {
+        unresponsiveSince = Date.now();
+        writeLog('error', 'FREEZE', 'Janela principal parou de responder (app travado)');
+    });
+    mainWindow.on('responsive', () => {
+        const secs = unresponsiveSince ? Math.round((Date.now() - unresponsiveSince) / 1000) : '?';
+        unresponsiveSince = null;
+        writeLog('warn', 'FREEZE', `Janela principal voltou a responder depois de ~${secs}s`);
+    });
+
+    // A tela inteira morreu (crash, falta de memória, GPU): recarrega pra não deixar o
+    // vigia sem monitoramento com uma tela branca/congelada.
+    mainWindow.webContents.on('render-process-gone', (_event, details) => {
+        writeLog('error', 'CRASH', `Processo da tela encerrou: ${details.reason} (código ${details.exitCode})`);
+        if (details.reason !== 'clean-exit' && mainWindow && !mainWindow.isDestroyed()) {
+            setTimeout(() => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload(); }, 1000);
+        }
+    });
+    mainWindow.webContents.on('did-fail-load', (_event, code, description, url) => {
+        writeLog('error', 'LOAD', `Falha ao carregar ${url}: ${description} (${code})`);
+    });
 }
 
 function createDotWindow() {
@@ -249,6 +318,14 @@ function createDotWindow() {
                 },
             });
         }
+        template.push({ type: 'separator' });
+        template.push({
+            label: 'Abrir pasta de logs',
+            click: () => {
+                fs.mkdirSync(LOG_DIR, { recursive: true });
+                shell.openPath(LOG_DIR);
+            },
+        });
         template.push({ type: 'separator' });
         // "Sair" NÃO encerra direto: o app é obrigatório, então só quem souber a senha
         // de supervisor (validada na janela principal, ver 'sundrowsy:confirm-quit')
@@ -306,6 +383,14 @@ if (!gotLock) {
         // o arquivo de estado com o heartbeat desta execução.
         checkPreviousSessionCrash();
         startHeartbeat();
+        pruneOldLogs();
+        writeLog('info', 'MAIN', `SunDrowsy ${app.getVersion()} iniciado`);
+        if (pendingCrashReport) writeLog('warn', 'MAIN', 'A execução anterior foi encerrada de forma anormal');
+
+        // Crash da GPU/utilitários trava a imagem (WebGL do MediaPipe roda na GPU).
+        app.on('child-process-gone', (_event, details) => {
+            writeLog('error', 'CRASH', `Processo ${details.type} encerrou: ${details.reason} (código ${details.exitCode})`);
+        });
 
         // Permite acesso à câmera/microfone sem o prompt padrão do Chromium travar o app.
         session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -371,6 +456,11 @@ if (!gotLock) {
     });
 
     // --- IPC: senha de supervisor confirmada na janela principal — agora sim sai ---
+    ipcMain.on('sundrowsy:log', (_event, entry) => {
+        if (!entry || typeof entry !== 'object') return;
+        writeLog(entry.level || 'info', `TELA/${entry.source || '?'}`, String(entry.message || ''), entry.extra);
+    });
+
     ipcMain.on('sundrowsy:confirm-quit', () => {
         isQuitting = true;
         app.quit();
