@@ -174,6 +174,41 @@ de verdade — testar manualmente):
 5. Tente `schtasks /delete /tn "SunDrowsyWatchdog" /f` logado como usuário padrão
    (sem admin) — deve pedir elevação/falhar.
 
+## Logs de erro / travamento
+
+Pra descobrir onde o app travou (imagem congelada, "Não está respondendo", tela
+branca), cada PC grava um log por dia em `%APPDATA%\SunDrowsy\logs\`
+(clique direito no dot > **Abrir pasta de logs**; guarda os últimos 14 dias).
+
+| Fonte | O que aparece |
+|---|---|
+| `TELA/AUTH` | cada etapa do login/logout, erros e login demorando mais de 15s (e em qual etapa parou) |
+| `TELA/CAMERA` | câmera aberta, erro ao abrir, câmera desconectada / parou de mandar imagem |
+| `TELA/MEDIAPIPE` | imagem congelada (sem análise há 6s+, com o estado da câmera/vídeo), watchdog e erros da rede neural |
+| `TELA/UI` | interface travada por mais de ~2,5s |
+| `TELA/JS`, `TELA/PROMISE`, `CONSOLE` | erros de JavaScript e `console.error`/`warn` da tela |
+| `FREEZE`, `CRASH`, `LOAD` | janela "Não está respondendo", crash da tela/GPU (a tela recarrega sozinha), falha ao carregar |
+
+No navegador (ou num app nativo 1.0.3, que ainda não tem o IPC de log), as últimas
+300 entradas ficam no `localStorage` — abra o console e rode `sdDumpLogs()`.
+
+### Erros sobem sozinhos pro painel admin
+
+Todo **aviso/erro** (não os `info`) sobe pro Firestore em `logs/{uid}/logs` com
+`type: 'APP_ERROR'` e aparece no admin em **Auditoria** (filtro "Erro / travamento").
+O botão Auditoria mostra um contador vermelho com os erros das últimas 24h e, com o
+painel aberto, chega um aviso na hora. Em cada erro, **"Ver como travou"** mostra os
+detalhes técnicos e as ~25 entradas anteriores do log (o rastro até o problema).
+
+- Sem internet ou deslogado: fica numa fila local e sobe quando der (inclusive
+  travamentos/crash da tela, que o `main.js` guarda e entrega quando a tela volta).
+- Pra não gastar escrita: a mesma mensagem sobe no máximo 1x a cada 10 min, e no
+  máximo 30 por hora por PC. Senha errada / popup fechado não sobem.
+- Janela "Não está respondendo" por 60s: o app derruba e recarrega a tela sozinho.
+- Precisa do índice composto do Firestore **collection group `logs`: `type` ASC +
+  `timestamp` DESC** (o mesmo da Auditoria). Se faltar, o console do admin mostra o
+  link pra criar.
+
 ## Estrutura
 
 - `main.js` — processo principal: cria a janela do app e a janela do dot, libera

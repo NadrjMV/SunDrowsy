@@ -1,9 +1,12 @@
+import { installErrorLogger, logEvent, setErrorUploader, flushUploads } from './error-logger.js';
 import { auth, googleProvider, db } from './firebase-config.js';
 import { AudioManager } from './audio-manager.js';
 import { DrowsinessDetector } from './detector.js'; 
 import { LANDMARKS, calculateEAR, calculateMAR, calculateHeadTilt, calculatePitchRatio } from './vision-logic.js';
 // Import da config nova
 import { APP_CONFIG } from './config.js';
+
+installErrorLogger();
 
 // --- VARIAVEIS GLOBAIS DE LEITURA INSTANTANEA ---
 let currentLeftEAR = 0;
@@ -137,6 +140,18 @@ function showToast(message, type = 'error') {
 }
 
 // --- LOGIN POR E-MAIL E SENHA ---
+// Volta o botão "Entrar" pro estado normal. Sem isso, depois de um login bem-sucedido
+// o botão ficava desabilitado em "Autenticando..." e, ao fazer logout, a tela de login
+// voltava com ele travado assim pra sempre.
+function resetLoginButton() {
+    const btn = document.getElementById('btn-email-login');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.innerHTML = sessionStorage.getItem('sd_invite_token')
+        ? '<span class="material-icons-round">person_add</span> Finalizar Cadastro'
+        : '<span class="material-icons-round">login</span> Entrar';
+}
+
 const formEmailLogin = document.getElementById('form-email-login');
 if (formEmailLogin) {
     formEmailLogin.addEventListener('submit', async (e) => {
@@ -149,8 +164,9 @@ if (formEmailLogin) {
     const tokenValido = sessionStorage.getItem('sd_invite_token');
 
     btn.disabled = true;
-    const originalText = btn.innerHTML;
     btn.innerText = tokenValido ? "Criando Perfil..." : "Autenticando...";
+    isIntentionalLogin = true;
+    logEvent('info', 'AUTH', tokenValido ? 'Criando conta por convite' : 'Login por e-mail iniciado');
 
     try {
         if (tokenValido) {
@@ -161,10 +177,10 @@ if (formEmailLogin) {
             await auth.signInWithEmailAndPassword(email, password);
         }
     } catch (error) {
-        console.error("Erro Auth:", error);
+        logEvent(authErrorLevel(error), 'AUTH', `Falha no login por e-mail (${error.code || 'sem código'})`, error);
         showToast("Erro: " + error.message);
-        btn.disabled = false;
-        btn.innerHTML = originalText;
+        isIntentionalLogin = false;
+        resetLoginButton();
     }
 });
 }
@@ -252,6 +268,46 @@ function logSystemEvent(uid, userName, role, type, reason) {
         userName: userName || 'Usuário',
         uid,
     }).catch(e => console.error(`❌ Erro ao salvar log (${type}):`, e));
+}
+
+// --- ERROS / TRAVAMENTOS → PAINEL ADMIN ---
+// Todo warn/error do error-logger.js sobe pra mesma coleção da auditoria, com
+// type APP_ERROR (aparece em Auditoria > "Erro / travamento" no admin). O id é fixo
+// por erro, então um reenvio após timeout não duplica.
+const ERROR_UPLOAD_TIMEOUT_MS = 15000;
+setErrorUploader(async (item) => {
+    const user = auth.currentUser;
+    if (!user || !navigator.onLine) return false;
+    const write = db.collection('logs').doc(user.uid).collection('logs').doc(`err_${item.id}`).set({
+        timestamp: new Date(item.ts),
+        type: 'APP_ERROR',
+        severity: item.severity,
+        source: item.source,
+        reason: item.message,
+        details: item.details || '',
+        trail: item.trail || '',
+        role: detector ? detector.config.role : 'DESCONHECIDO',
+        userName: user.displayName || user.email || 'Usuário',
+        uid: user.uid,
+        appVersion: APP_CONFIG.VERSION,
+        platform: window.electronAPI?.isElectron ? 'App nativo' : 'Navegador',
+    });
+    const timeout = new Promise((resolve) => setTimeout(() => resolve(false), ERROR_UPLOAD_TIMEOUT_MS));
+    // permission-denied (ex.: reenvio de um doc que já subiu, se as regras não
+    // permitirem update) descarta o item em vez de travar a fila pra sempre.
+    const done = write.then(() => true, (err) => {
+        console.log('[SD-LOG] Falha ao enviar erro pro admin:', err?.code || err);
+        return err?.code === 'permission-denied';
+    });
+    return Promise.race([done, timeout]);
+});
+
+// Erros de login que são do usuário (senha errada, fechou o popup) não são falha do app —
+// ficam só no log local, sem virar alerta no admin.
+const USER_AUTH_ERRORS = ['auth/wrong-password', 'auth/invalid-credential', 'auth/user-not-found', 'auth/invalid-email',
+    'auth/popup-closed-by-user', 'auth/cancelled-popup-request', 'auth/too-many-requests', 'auth/email-already-in-use', 'auth/weak-password'];
+function authErrorLevel(error) {
+    return USER_AUTH_ERRORS.includes(error?.code) ? 'info' : 'error';
 }
 
 // --- APP OBRIGATÓRIO (versão nativa/Electron) ---
@@ -355,8 +411,9 @@ let hasLoggedAppOpen = false;
 
 document.getElementById('btn-google-login').addEventListener('click', () => {
     isIntentionalLogin = true;
+    logEvent('info', 'AUTH', 'Login com Google iniciado');
     auth.signInWithPopup(googleProvider).catch((error) => {
-        console.error("Erro Auth:", error);
+        logEvent(authErrorLevel(error), 'AUTH', `Falha no login com Google (${error.code || 'sem código'})`, error);
         showToast("Erro no login: " + error.message);
         isIntentionalLogin = false;
     });
@@ -367,14 +424,28 @@ document.getElementById('btn-logout').addEventListener('click', () => {
     if (currentUser) {
         logSystemEvent(currentUser.uid, currentUser.displayName, detector ? detector.config.role : null, 'LOGOUT', 'Logout manual');
     }
+    logEvent('info', 'AUTH', 'Logout manual');
     window.electronAPI?.reportSession({ uid: null, userName: null, role: null });
     stopSystem();
-    auth.signOut();
+    auth.signOut().catch((e) => logEvent('error', 'AUTH', 'Falha no signOut', e));
 });
 
 // --- FLUXO DE AUTENTICAÇÃO ATUALIZADO (E-mail/Senha + Google + Calibração Individual) ---
+// Se a leitura do perfil no Firestore demorar demais (rede ruim, Firestore travado),
+// registra no log e libera o botão pra dar pra tentar de novo, em vez de ficar
+// "Autenticando..." eternamente sem pista nenhuma do motivo.
+const AUTH_SLOW_MS = 15000;
+
 auth.onAuthStateChanged(async (user) => {
     if (user) {
+        const authStartedAt = performance.now();
+        let authStep = 'lendo perfil do usuário';
+        const slowTimer = setTimeout(() => {
+            logEvent('warn', 'AUTH', `Autenticação demorando mais de ${AUTH_SLOW_MS / 1000}s — parado em: ${authStep}`);
+            showToast("A conexão está lenta. Aguarde ou tente entrar novamente.");
+            resetLoginButton();
+        }, AUTH_SLOW_MS);
+        logEvent('info', 'AUTH', `Sessão detectada (${user.email || user.uid})`);
         try {
             const userRef = db.collection('users').doc(user.uid);
             const doc = await userRef.get();
@@ -407,6 +478,7 @@ auth.onAuthStateChanged(async (user) => {
                 const tokenToUse = sessionStorage.getItem('sd_invite_token');
                 if (!tokenToUse) throw new Error("⛔ Link de convite necessário.");
 
+                authStep = 'consumindo convite';
                 const inviteRef = db.collection('invites').doc(tokenToUse);
                 const inviteDoc = await inviteRef.get(); // O 'allow get: if isSignedIn()' permite isso
 
@@ -444,6 +516,7 @@ auth.onAuthStateChanged(async (user) => {
                 sessionStorage.removeItem('sd_invite_token');
             }
 
+            authStep = 'finalizando login';
             // --- AUDITORIA: LOGIN / abertura do app / relatório de fechamento indevido ---
             window.electronAPI?.reportSession({ uid: user.uid, userName: user.displayName, role: userData.role });
 
@@ -460,6 +533,11 @@ auth.onAuthStateChanged(async (user) => {
                 pendingCrashReport = null;
             }
 
+            clearTimeout(slowTimer);
+            logEvent('info', 'AUTH', `Login concluído em ${Math.round(performance.now() - authStartedAt)}ms`);
+            resetLoginButton(); // deixa pronto pro próximo login (após um logout)
+            flushUploads(); // sobe erros que ficaram na fila (ex.: travou/crashou antes do login)
+
             // Transição para LGPD ou APP
             if (!userData.lgpdAccepted) {
                 loginView.classList.add('hidden');
@@ -472,8 +550,13 @@ auth.onAuthStateChanged(async (user) => {
             }
 
         } catch (error) {
+            clearTimeout(slowTimer);
+            // "⛔ ..." são bloqueios de regra (conta desativada, sem convite), não falha do app.
+            const blocked = String(error?.message || '').startsWith('⛔');
+            logEvent(blocked ? 'info' : 'error', 'AUTH', `Falha ao ${authStep}`, error);
             showToast(error.message);
-            auth.signOut();
+            resetLoginButton();
+            auth.signOut().catch((e) => logEvent('error', 'AUTH', 'Falha no signOut', e));
         }
     } else {
         // Se houver um token no storage, não limpamos a tela agressivamente
@@ -491,6 +574,7 @@ function showLoginView() {
     appView.classList.add('hidden');
     appView.classList.remove('active');
     lgpdModal.classList.add('hidden');
+    resetLoginButton();
     
     loginView.classList.remove('hidden');
     setTimeout(() => loginView.classList.add('active'), 100);
@@ -613,27 +697,45 @@ if(roleSelector) {
 
 // --- INIT SYSTEM ---
 async function initSystem() {
-    if (detector) return;
+    // Antes a trava era "if (detector) return" — mas o logout (stopSystem) fecha a câmera
+    // e mata o worker sem apagar o detector, então no login seguinte nada reabria a
+    // câmera e a imagem ficava congelada. Agora só pula se a câmera já estiver aberta.
+    if (videoElement.srcObject || isStartingCamera) return;
+    isStartingCamera = true;
 
-    detector = new DrowsinessDetector(audioMgr, () => {}); 
+    if (!detector) {
+        detector = new DrowsinessDetector(audioMgr, () => {});
+    } else {
+        // Reaproveitado de uma sessão anterior (logout → login): não herda calibração
+        // nem alarme de quem estava antes. A calibração do usuário atual é aplicada
+        // logo depois, em startAppFlow.
+        detector.stopAlarm();
+        detector.state.isCalibrated = false;
+    }
     detector.state.monitoring = true;
     detector.updateUI("INICIANDO CÂMERA...");
 
-    faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
-    faceMesh.setOptions({
-        maxNumFaces: 1,
-        refineLandmarks: true,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-    });
-    faceMesh.onResults(onResults);
+    // A rede neural é carregada uma vez só e reaproveitada entre logins (carregar de
+    // novo baixa o modelo e cria outro contexto WebGL).
+    if (!faceMesh) {
+        faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        faceMesh.onResults(onResults);
+    }
 
+    logEvent('info', 'CAMERA', 'Abrindo câmera');
     try {
             // Resolução da câmera segue o perfil de desempenho ativo (ver PERFORMANCE_PROFILES).
             // 'ideal' pede essa resolução sem travar se o dispositivo não suportar exatamente.
             const profile = PERFORMANCE_PROFILES[currentPerfProfileKey];
             const stream = await navigator.mediaDevices.getUserMedia(buildVideoConstraints(profile));
             videoElement.srcObject = stream;
+            watchCameraTracks(stream);
             // Só depois da permissão o navegador revela os nomes das câmeras.
             refreshCameraList();
         videoElement.onloadedmetadata = () => {
@@ -644,14 +746,32 @@ async function initSystem() {
             videoElement.style.position = 'absolute';
             videoElement.style.zIndex = '-999';
 
-            videoElement.play();
+            videoElement.play().catch((e) => logEvent('error', 'CAMERA', 'video.play() falhou', e));
             startDetectionLoop();
             detector.updateUI("SISTEMA ATIVO");
+            logEvent('info', 'CAMERA', `Câmera ativa (${videoElement.videoWidth}x${videoElement.videoHeight})`);
         };
     } catch (err) {
-        console.error("Erro Câmera:", err);
+        logEvent('error', 'CAMERA', `Erro ao abrir câmera (${err.name})`, err);
         showToast("Erro ao abrir câmera: " + err.message);
+    } finally {
+        isStartingCamera = false;
     }
+}
+
+let isStartingCamera = false;
+
+// Avisa no log quando a câmera some/para de mandar imagem (cabo solto, outro app pegou
+// a webcam, driver travou) — é uma das causas de "imagem congelada".
+function watchCameraTracks(stream) {
+    stream.getVideoTracks().forEach((track) => {
+        const label = track.label || 'câmera';
+        track.addEventListener('ended', () => {
+            if (videoElement.srcObject === stream) logEvent('error', 'CAMERA', `A câmera parou (ended): ${label}`);
+        });
+        track.addEventListener('mute', () => logEvent('warn', 'CAMERA', `A câmera parou de enviar imagem (mute): ${label}`));
+        track.addEventListener('unmute', () => logEvent('info', 'CAMERA', `A câmera voltou a enviar imagem: ${label}`));
+    });
 }
 
 const debugSlider = document.getElementById('debug-slider');
@@ -706,6 +826,7 @@ async function restartCameraStream() {
     if (oldStream) oldStream.getTracks().forEach(track => track.stop());
     const newStream = await navigator.mediaDevices.getUserMedia(buildVideoConstraints(PERFORMANCE_PROFILES[currentPerfProfileKey]));
     videoElement.srcObject = newStream;
+    watchCameraTracks(newStream);
     videoElement.play().catch(() => {});
 }
 
@@ -818,12 +939,46 @@ function stopSystem() {
         videoElement.srcObject.getTracks().forEach(track => track.stop());
         videoElement.srcObject = null;
     }
+    if (detector) detector.stopAlarm();
+    isProcessingFrame = false;
+    frameFreezeReported = false;
+    lastResultsAt = 0;
 }
 
 let currentPitch = 0;
 
+// --- DETECTOR DE IMAGEM CONGELADA ---
+// Última vez que o MediaPipe devolveu um resultado. Se passar muito tempo sem isso com
+// o sistema rodando, a imagem está congelada — registra o estado da câmera/vídeo pra
+// saber se foi a câmera, o vídeo ou a rede neural que travou.
+let lastResultsAt = 0;
+let frameFreezeReported = false;
+const FRAME_FREEZE_MS = 6000;
+
+function checkFrameFreeze() {
+    if (!lastResultsAt || frameFreezeReported) return;
+    const idle = Date.now() - lastResultsAt;
+    if (idle < FRAME_FREEZE_MS) return;
+    frameFreezeReported = true;
+    const track = videoElement.srcObject?.getVideoTracks?.()[0];
+    logEvent('error', 'MEDIAPIPE', `Imagem congelada: sem análise há ${Math.round(idle / 1000)}s`, {
+        videoPaused: videoElement.paused,
+        videoReadyState: videoElement.readyState,
+        videoSize: `${videoElement.videoWidth}x${videoElement.videoHeight}`,
+        trackState: track ? track.readyState : 'sem track',
+        trackMuted: track ? track.muted : null,
+        processingLock: isProcessingFrame,
+        hidden: document.hidden,
+    });
+}
+
 // --- LOOP PROCESSAMENTO ---
 function onResults(results) {
+    lastResultsAt = Date.now();
+    if (frameFreezeReported) {
+        logEvent('info', 'MEDIAPIPE', 'Análise da imagem voltou ao normal');
+        frameFreezeReported = false;
+    }
     // Resize do canvas SOMENTE quando as dimensões mudarem.
     // Setar .width/.height toda frame destrói e recria o contexto de GPU — custo enorme.
     const vw = videoElement.videoWidth;
@@ -1165,6 +1320,7 @@ function startDetectionLoop() {
 
     detectionWorker.onmessage = function(e) {
         if (e.data === "tick") {
+            checkFrameFreeze();
             // A detecção DEVE rodar sempre. Removemos qualquer verificação de document.hidden.
             if (!isProcessingFrame && faceMesh && videoElement && !videoElement.paused) { 
                 isProcessingFrame = true;
@@ -1175,7 +1331,7 @@ function startDetectionLoop() {
                 // seria processado, causando reset dos timers e falsos "sono profundo".
                 const watchdogTimer = setTimeout(() => {
                     if (isProcessingFrame) {
-                        console.warn("⚠️ WATCHDOG: MediaPipe não respondeu em 3s. Liberando lock.");
+                        logEvent('warn', 'MEDIAPIPE', 'WATCHDOG: MediaPipe não respondeu em 3s. Liberando lock.');
                         isProcessingFrame = false;
                     }
                 }, 3000);
@@ -1189,7 +1345,7 @@ function startDetectionLoop() {
                     .catch((e) => { 
                         // Se o MediaPipe falhar (ex: WebGL/WASM crash)
                         clearTimeout(watchdogTimer);
-                        console.error("ERRO CRÍTICO no MediaPipe. Tentando recuperar.", e);
+                        logEvent('error', 'MEDIAPIPE', 'Erro no MediaPipe. Tentando recuperar.', e);
                         isProcessingFrame = false; 
                     });
             }
@@ -1197,6 +1353,7 @@ function startDetectionLoop() {
     };
 
     // Dá a partida no motor. Enviamos start APENAS uma vez.
+    lastResultsAt = Date.now(); // começa a contar o "sem imagem" a partir daqui
     detectionWorker.postMessage("start");
     console.log("🚀 Worker de Background Iniciado (Vigilância Contínua)");
 }

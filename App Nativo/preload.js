@@ -29,4 +29,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // queda de energia, crash), o processo principal manda um relatório assim que a
     // janela principal termina de carregar.
     onCrashReport: (callback) => ipcRenderer.on('sundrowsy:crash-report', (_event, data) => callback(data)),
+
+    // --- LOG DE ERROS / TRAVAMENTOS ---
+    // Grava uma entrada no arquivo de log (ver src/error-logger.js e main.js > writeLog).
+    logEvent: (entry) => ipcRenderer.send('sundrowsy:log', entry),
+    // Eventos do processo principal (janela travada, crash da tela/GPU, console.error)
+    // repassados pra tela, que sobe pro painel admin.
+    onMainLog: (callback) => ipcRenderer.on('sundrowsy:main-log', (_event, entry) => callback(entry)),
 });
