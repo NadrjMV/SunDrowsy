@@ -992,9 +992,11 @@ function onResults(results) {
         canvasCtx.save();
         canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-        // SEM espelhamento: este é um monitoramento de segurança, não uma selfie —
-        // a orientação mostrada (e salva nos snapshots) deve ser fiel à realidade
-        // (esquerda/direita reais), não invertida como um espelho.
+        // Espelhado (como um espelho/webcam comum): é assim que a pessoa espera se ver.
+        // A máscara é desenhada dentro do mesmo save/restore, então acompanha a imagem.
+        // Só afeta o desenho — a detecção usa os landmarks crus, sem espelho.
+        canvasCtx.translate(canvasElement.width, 0);
+        canvasCtx.scale(-1, 1);
 
         // Só desenha a foto da câmera se a variável for true
         if (window.showCameraFeed) {
@@ -1799,8 +1801,11 @@ window.captureSnapshot = () => {
         tempCanvas = document.createElement('canvas');
         tempCanvas.width = SNAP_W;
         tempCanvas.height = SNAP_H;
-        // Sem espelhamento — igual ao preview (ver onResults), orientação real.
-        tempCanvas.getContext('2d').drawImage(videoElement, 0, 0, SNAP_W, SNAP_H);
+        // Espelhado igual ao preview (ver onResults), pra foto bater com o que aparece na tela.
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.translate(SNAP_W, 0);
+        tempCtx.scale(-1, 1);
+        tempCtx.drawImage(videoElement, 0, 0, SNAP_W, SNAP_H);
     } catch (e) {
         console.error("❌ Erro ao capturar o frame do snapshot:", e);
         return Promise.resolve(null);
